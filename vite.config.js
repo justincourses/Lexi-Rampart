@@ -1,7 +1,7 @@
 import { defineConfig } from 'vite';
 
 const buildId = String(
-  process.env.RUNE_RAMPART_BUILD_ID
+  process.env.LEXI_RAMPART_BUILD_ID
   || process.env.CF_PAGES_COMMIT_SHA
   || process.env.GITHUB_SHA
   || `local-${new Date().toISOString().replace(/\D/g, '').slice(0, 14)}`
@@ -9,11 +9,11 @@ const buildId = String(
 
 function releaseManifest() {
   return {
-    name: 'rune-rampart-release-manifest',
+    name: 'lexi-rampart-release-manifest',
     transformIndexHtml() {
       return [{
         tag: 'meta',
-        attrs: { name: 'rune-rampart-build', content: buildId },
+        attrs: { name: 'lexi-rampart-build', content: buildId },
         injectTo: 'head-prepend',
       }];
     },
@@ -35,7 +35,7 @@ export default defineConfig({
   plugins: [releaseManifest()],
   publicDir: 'public',
   define: {
-    __RUNE_RAMPART_BUILD_ID__: JSON.stringify(buildId),
+    __LEXI_RAMPART_BUILD_ID__: JSON.stringify(buildId),
   },
   build: {
     outDir: 'dist',

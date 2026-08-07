@@ -1,6 +1,6 @@
 # 贡献指南
 
-感谢关注「符文守护」。本文说明如何在本仓库安全、一致地开发与提交改动。更细的模块地图见 [`AGENTS.md`](./AGENTS.md)，开发与部署概览见 [`README.md`](./README.md)，玩法说明见 [`docs/gameplay.md`](./docs/gameplay.md)。
+感谢关注「词垒守卫」。本文说明如何在本仓库安全、一致地开发与提交改动。更细的模块地图见 [`AGENTS.md`](./AGENTS.md)，开发与部署概览见 [`README.md`](./README.md)，玩法说明见 [`docs/gameplay.md`](./docs/gameplay.md)。
 
 ## 行为与范围
 
@@ -62,17 +62,17 @@ npm run preview   # http://127.0.0.1:4173
 | --- | --- |
 | 难度参数 | `src/config/game-config.js` |
 | 常量 / 存档 key / 装备表 | `src/game/constants.js` |
-| 三消判定 | `src/game/match-logic.js` |
+| 补词判定与奖励 | `src/game/spelling-logic.js` |
+| 词库与难度映射 | `src/game/word-lists.js`、`src/data/words-*.json` |
 | 波次、军械、补强公式 | `src/game/combat-math.js` |
-| 拖拽手势规则 | `src/game/gesture.js` |
-| 棋盘流程状态 | `src/game/board-flow.js`（XState） |
+| 补词输入与界面 | `src/game/spelling.js` |
 | 动画驱动 | `src/game/animation.js`（Motion；保留 CSS 回退） |
-| 棋盘 / 战斗表现 | `board.js`、`combat.js`、`combat-stats.js` |
+| 战斗表现 | `combat.js`、`combat-stats.js` |
 | 存档与续战 | `save.js`、`storage.js`、`history.js` |
 | HUD / 界面 / 事件 | `hud.js`、`ui.js`、`events.js` |
 | 静态音效 | `public/assets/` |
 
-能抽成纯函数并单测的逻辑，优先放在 `match-logic.js`、`combat-math.js`、`gesture.js` 等文件。
+能抽成纯函数并单测的逻辑，优先放在 `spelling-logic.js`、`combat-math.js` 等文件。
 
 ### 不可随意改动的契约
 
@@ -112,7 +112,7 @@ npm run test:migration-browser:css
 ```
 
 - 改交互、存档、布局、难度时：优先跑 `test:browser`
-- 改动画、棋盘流程、暂停恢复时：跑 migration 主路径 + CSS 回退两条
+- 改补词动画、暂停恢复时：跑浏览器冒烟与存档恢复检查
 
 ### 构建与部署产物
 
@@ -127,7 +127,7 @@ node tests/deployment_smoke.js   # 可选：资源恢复引导
 ### 手动抽查清单（按改动勾选）
 
 - [ ] 桌面端交换 / 拖拽无效回弹
-- [ ] 连锁消除与补强数字、HUD `+N`/`-N`
+- [ ] 正确/错误/揭示反馈与符文数字、HUD `+N`/`-N`
 - [ ] 余烬开火与奥术齐射（`Q`）
 - [ ] 暂停 / `Esc` / 切后台再回来
 - [ ] 刷新后续战、重新部署清档
@@ -156,7 +156,7 @@ node tests/deployment_smoke.js   # 可选：资源恢复引导
 日常贡献者一般 **不需要** 直接 `npm run deploy`。维护者发布时：
 
 1. 确认目标分支已合并且 CI/本地测试通过
-2. 已 `wrangler login`，Pages 项目 `rune-rampart` 可用
+2. 已 `wrangler login`，Pages 项目 `lexi-rampart` 可用
 3. Pages 环境变量 `NODE_VERSION=22`
 4. 执行：
 

@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 
-const liveBase = new URL(process.env.DEPLOY_CHECK_URL || 'https://rune-rampart.pages.dev/');
+const liveBase = new URL(process.env.DEPLOY_CHECK_URL || 'https://lexi-rampart.pages.dev/');
 const expected = JSON.parse(fs.readFileSync(new URL('../dist/asset-manifest.json', import.meta.url), 'utf8'));
 const wait = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 
@@ -10,7 +10,7 @@ async function verify() {
   const htmlResponse = await fetch(htmlUrl, { headers: { 'cache-control': 'no-cache' } });
   if (!htmlResponse.ok) throw new Error(`HTML returned ${htmlResponse.status}`);
   const html = await htmlResponse.text();
-  if (!html.includes(`name="rune-rampart-build" content="${expected.buildId}"`)) throw new Error('production alias still serves another build');
+  if (!html.includes(`name="lexi-rampart-build" content="${expected.buildId}"`)) throw new Error('production alias still serves another build');
 
   const manifestUrl = new URL(`/asset-manifest.json?deploy-check=${stamp}`, liveBase);
   const manifestResponse = await fetch(manifestUrl, { headers: { 'cache-control': 'no-cache' } });

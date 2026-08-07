@@ -69,6 +69,7 @@ export function attachAudio() {
       } else {
         this.play('click', .2, .85);
         this.muted = true;
+        window.speechSynthesis?.cancel();
       }
       writeStorage(STORAGE_KEYS.muted, String(this.muted));
       g.updateSoundButton();

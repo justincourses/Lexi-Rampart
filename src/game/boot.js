@@ -8,8 +8,7 @@ export function attachBoot() {
   g.state.selectedDifficulty = initialDifficulty;
   g.state.difficulty = initialDifficulty;
   g.settlementHistory = g.readHistory();
-  g.buildBoard();
-  g.renderBoard(new Set(), -1, 'initial');
+  g.prepareSpellingRound();
   g.selectDifficulty(initialDifficulty, false);
   g.setUpgradeMode('auto', false);
   g.updateSoundButton();

@@ -6,6 +6,8 @@ import {
 } from './constants.js';
 import { readStorage, writeStorage, removeStorage } from './storage.js';
 import { safeNumber } from './utils.js';
+import { isValidSpellingRound } from './spelling-logic.js';
+import { wordEntriesForDifficulty } from './word-lists.js';
 
 export function attachSave() {
   function clearSavedProgress() {
@@ -18,12 +20,10 @@ export function attachSave() {
     if (!raw) return null;
     try {
       const save = JSON.parse(raw);
-      const validBoard = Array.isArray(save.board) && save.board.length === ROWS * COLS
-        && save.board.every((type) => TYPES.includes(type));
-      const validRelics = Array.isArray(save.boardRelics) && save.boardRelics.length === ROWS * COLS
-        && save.boardRelics.every((type) => type === null || Boolean(RELICS[type]));
       const migratedDifficulty = save.difficulty === 'rookie' ? DEFAULT_DIFFICULTY : save.difficulty;
-      if (save.version !== SAVE_VERSION || !DIFFICULTIES[migratedDifficulty] || !validBoard || !validRelics) throw new Error('Invalid checkpoint');
+      const validRound = DIFFICULTIES[migratedDifficulty]
+        && isValidSpellingRound(save.spellingRound, wordEntriesForDifficulty(migratedDifficulty));
+      if (save.version !== SAVE_VERSION || !validRound) throw new Error('Invalid checkpoint');
       return { ...save, difficulty: migratedDifficulty, selectedDifficulty: g.normalizeDifficultyKey(save.selectedDifficulty || migratedDifficulty) };
     } catch (error) {
       g.clearSavedProgress();
@@ -53,10 +53,7 @@ export function attachSave() {
 
   function saveProgress(reason = 'manual') {
     if (!g.state.started || g.state.gameOver) return false;
-    if (g.state.board.some((type) => !TYPES.includes(type))) {
-      g.state.pendingSaveReason = reason;
-      return false;
-    }
+    if (!g.state.spellingRound) return false;
     const now = g.state.paused && g.state.pausedAt ? g.state.pausedAt : performance.now();
     const save = {
       version: SAVE_VERSION,
@@ -64,8 +61,14 @@ export function attachSave() {
       reason,
       difficulty: g.state.difficulty,
       selectedDifficulty: g.state.selectedDifficulty,
-      board: [...g.state.board],
-      boardRelics: [...g.state.boardRelics],
+      spellingRound: {
+        ...g.state.spellingRound,
+        hiddenIndices: [...g.state.spellingRound.hiddenIndices],
+        filledIndices: [...g.state.spellingRound.filledIndices]
+      },
+      wordBag: [...g.state.wordBag],
+      runeBag: [...g.state.runeBag],
+      previousHiddenEdge: g.state.previousHiddenEdge,
       score: g.state.score,
       kills: g.state.kills,
       wave: g.state.wave,
@@ -89,9 +92,12 @@ export function attachSave() {
       enemyRelicsSpawnedThisWave: g.state.enemyRelicsSpawnedThisWave,
       waveMatches: g.state.waveMatches,
       totalMatches: g.state.totalMatches,
+      waveWords: g.state.waveWords,
+      totalWords: g.state.totalWords,
+      correctStreak: g.state.correctStreak,
       paused: g.state.paused,
       activePlayMs: g.currentActivePlayMs(now),
-      resolution: g.state.resolution ? { ...g.state.resolution } : null,
+      resolution: null,
       spawnDelay: Math.max(0, g.state.nextSpawnAt - now),
       attackDelay: Math.max(0, g.state.attackReadyAt - now),
       intermissionRemaining: g.state.intermissionUntil ? Math.max(0, g.state.intermissionUntil - now) : 0,
@@ -232,7 +238,7 @@ export function attachSave() {
     g.state.sessionId += 1;
     g.clearGameTasks();
     const sessionId = g.state.sessionId;
-    const restoredResolution = g.sanitizeResolution(save.resolution);
+    const restoredResolution = null;
     g.state.selected = null;
     g.restartBoardFlow(restoredResolution);
     g.state.locked = Boolean(restoredResolution);
@@ -245,8 +251,6 @@ export function attachSave() {
     g.state.settlementRecorded = false;
     g.state.difficulty = g.normalizeDifficultyKey(save.difficulty);
     g.state.selectedDifficulty = g.state.difficulty;
-    g.state.board = [...save.board];
-    g.state.boardRelics = [...save.boardRelics];
     g.state.score = Math.floor(safeNumber(save.score, 0, 0, MAX_SAFE_GAME_INTEGER));
     g.state.kills = Math.floor(safeNumber(save.kills, 0, 0, MAX_SAFE_GAME_INTEGER));
     g.state.wave = g.normalizeWave(save.wave, g.state.difficulty);
@@ -285,6 +289,12 @@ export function attachSave() {
     ));
     g.state.waveMatches = Math.floor(safeNumber(save.waveMatches, 0, 0, MAX_SAFE_GAME_INTEGER));
     g.state.totalMatches = Math.floor(safeNumber(save.totalMatches, 0, 0, MAX_SAFE_GAME_INTEGER));
+    g.state.waveWords = Math.floor(safeNumber(save.waveWords, 0, 0, MAX_SAFE_GAME_INTEGER));
+    g.state.totalWords = Math.floor(safeNumber(save.totalWords, 0, 0, MAX_SAFE_GAME_INTEGER));
+    g.state.correctStreak = Math.floor(safeNumber(save.correctStreak, 0, 0, MAX_SAFE_GAME_INTEGER));
+    g.state.combo = g.state.correctStreak;
+    g.state.previousHiddenEdge = ['start', 'end'].includes(save.previousHiddenEdge) ? save.previousHiddenEdge : '';
+    if (!g.restoreSpellingRound(save.spellingRound, save.wordBag, save.runeBag)) return false;
     g.state.activePlayMs = safeNumber(save.activePlayMs, 0, 0, MAX_SAFE_GAME_INTEGER);
     g.state.combatBuff = g.sanitizeBuff(save.combatBuff);
     g.state.combatBuffQueue = Array.isArray(save.combatBuffQueue) ? save.combatBuffQueue.map(g.sanitizeBuff).filter(Boolean) : [];
@@ -301,7 +311,7 @@ export function attachSave() {
     g.state.pausedAt = 0;
     g.state.playSegmentStartedAt = now;
 
-    g.renderBoard(new Set(), -1, 'initial');
+    g.renderSpelling();
     g.updateCombo();
     g.selectDifficulty(g.state.difficulty, false);
     g.setUpgradeMode(g.state.upgradeMode, false);
@@ -310,7 +320,7 @@ export function attachSave() {
     g.els.rulesModal.classList.remove('is-open');
     g.els.gameOverModal.classList.remove('is-open');
     g.syncPauseUi();
-    g.addLog(`已${restoredFromPause ? '从暂停点继续' : '恢复'}第 ${g.state.wave} 波本地战报，棋盘与前线状态同步完成`);
+    g.addLog(`已${restoredFromPause ? '从暂停点继续' : '恢复'}第 ${g.state.wave} 波本地战报，单词与前线状态同步完成`);
     const restoredTargets = g.state.enemies.filter((enemy) => enemy.entered);
     g.aimTurret(restoredTargets.length ? restoredTargets.reduce((closest, enemy) => enemy.x < closest.x ? enemy : closest) : null);
     g.updateUI();

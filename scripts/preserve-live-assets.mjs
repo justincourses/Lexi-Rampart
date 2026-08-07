@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const dist = path.join(root, 'dist');
-const liveBase = new URL(process.env.DEPLOY_CHECK_URL || 'https://rune-rampart.pages.dev/');
+const liveBase = new URL(process.env.DEPLOY_CHECK_URL || 'https://lexi-rampart.pages.dev/');
 const allowedAsset = (value) => /^\/(?:_app\/[a-zA-Z0-9._/-]+|assets\/index-[a-zA-Z0-9._-]+\.(?:js|css))$/.test(value) && !value.includes('..');
 
 async function discoverAssets() {

@@ -1,5 +1,5 @@
 {
-  "name": "rune-rampart",
+  "name": "lexi-rampart",
   "version": "1.0.0",
   "private": true,
   "type": "module",
@@ -12,11 +12,12 @@
     "build": "vite build && node scripts/verify-dist.mjs",
     "test": "npm run test:unit",
     "test:unit": "node --test tests/*.test.js",
-    "test:browser": "node tests/browser_smoke.js",
-    "test:migration-browser": "node tests/runtime_migration_smoke.js",
-    "test:migration-browser:css": "ANIMATION_DRIVER=css node tests/runtime_migration_smoke.js",
+    "test:browser": "node tests/spelling_browser_smoke.js",
+    "test:migration-browser": "node tests/spelling_browser_smoke.js",
+    "test:migration-browser:css": "ANIMATION_DRIVER=css node tests/spelling_browser_smoke.js",
+    "test:legacy-match3-browser": "node tests/browser_smoke.js",
     "preview": "vite preview --host 127.0.0.1 --port 4173",
-    "deploy": "npm run build && node scripts/preserve-live-assets.mjs && node scripts/verify-dist.mjs && wrangler pages deploy ./dist --project-name rune-rampart && node scripts/verify-live.mjs"
+    "deploy": "npm run build && node scripts/preserve-live-assets.mjs && node scripts/verify-dist.mjs && wrangler pages deploy ./dist --project-name lexi-rampart && node scripts/verify-live.mjs"
   },
   "devDependencies": {
     "playwright": "^1.61.1",

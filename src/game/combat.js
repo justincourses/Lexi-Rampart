@@ -17,6 +17,7 @@ export function attachCombat() {
     g.state.waveBossesRemaining = profile.bossCount;
     g.state.enemyRelicsSpawnedThisWave = 0;
     g.state.waveMatches = 0;
+    g.state.waveWords = 0;
     g.state.nextSpawnAt = performance.now() + 700;
     g.state.intermissionUntil = 0;
     g.$('#threatText').textContent = profile.isBossWave
@@ -28,7 +29,7 @@ export function attachCombat() {
     announcement.classList.remove('is-visible');
     void announcement.offsetWidth;
     announcement.classList.add('is-visible');
-    g.addLog(`第 ${g.state.wave} 波：${g.state.waveTotal} 个目标，每批 ${profile.batchSize} 个，建议完成 ${profile.requiredGroups} 组消除`);
+    g.addLog(`第 ${g.state.wave} 波：${g.state.waveTotal} 个目标，每批 ${profile.batchSize} 个，建议完成 ${profile.requiredGroups} 个单词`);
     g.sound.tone(196, .22, 'triangle', .028);
     g.sound.tone(294, .28, 'triangle', .032, .15);
     g.updateUI();
@@ -419,8 +420,8 @@ export function attachCombat() {
         if (!g.state.intermissionUntil) {
           g.state.intermissionUntil = now + WAVE_INTERMISSION_MS;
           g.state.score += Math.round(150 * g.state.wave * DIFFICULTIES[g.state.difficulty].scoreScale);
-          const matchResult = g.state.waveMatches >= g.state.waveProfile.requiredGroups ? '补强达标' : '补强不足';
-          g.addLog(`第 ${g.state.wave} 波肃清，${matchResult}（${g.state.waveMatches}/${g.state.waveProfile.requiredGroups} 组）`);
+          const wordResult = g.state.waveWords >= g.state.waveProfile.requiredGroups ? '补词达标' : '补词不足';
+          g.addLog(`第 ${g.state.wave} 波肃清，${wordResult}（${g.state.waveWords}/${g.state.waveProfile.requiredGroups} 词）`);
         } else if (now >= g.state.intermissionUntil) {
           g.startWave(g.state.wave + 1);
         }

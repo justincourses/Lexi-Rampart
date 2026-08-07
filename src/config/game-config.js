@@ -26,5 +26,5 @@ export const GAME_CONFIG = Object.freeze({
 });
 
 if (typeof window !== 'undefined') {
-  window.RUNE_GUARD_CONFIG = GAME_CONFIG;
+  window.LEXI_RAMPART_CONFIG = GAME_CONFIG;
 }

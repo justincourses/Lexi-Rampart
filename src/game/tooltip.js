@@ -27,13 +27,13 @@ export function attachTooltip() {
           ? `当前为「${difficulty.name}」难度。打开后会立即暂停并保存；确认出征才会清除本局并重开。`
           : '选择萌新、老兵或大佬难度；所有难度都会持续防守，直到城墙失守。'
       },
-      rules: { title: '完整规则', body: '集中查看消除、补强、战斗、彩蛋、难度、排名与存档规则；打开时会暂停并保存。' },
+      rules: { title: '完整规则', body: '集中查看补词、符文、战斗、难度、排名与存档规则；打开时会暂停并保存。' },
       leaderboard: { title: `本机排行榜 · ${g.settlementHistory.length} 条`, body: '打开总榜或按萌新、老兵、大佬难度查看历史战绩；同一难度优先比较守完波数。' },
       fullscreen: { title: document.fullscreenElement ? '退出全屏' : '进入全屏', body: '切换显示模式，不会改变战局进度或暂停状态。' },
-      sound: { title: g.sound.muted ? '音效已关闭' : '音效已开启', body: `点击${g.sound.muted ? '开启' : '关闭'}射击、命中、消除与升级音效；MIDI 军乐单独控制。` },
+      sound: { title: g.sound.muted ? '音效已关闭' : '音效已开启', body: `点击${g.sound.muted ? '开启' : '关闭'}射击、命中、补词朗读与升级音效；MIDI 军乐单独控制。` },
       pause: {
         title: g.state.paused ? '战局已暂停' : '立即暂停',
-        body: g.state.paused ? '点击后从冻结点继续；刷新页面后选择继续也会直接恢复交战。' : '立即冻结敌军、射击、消除连锁和特效，并把当前状态保存到浏览器。'
+        body: g.state.paused ? '点击后从冻结点继续；刷新页面后选择继续也会直接恢复交战。' : '立即冻结敌军、射击、补词切换和特效，并把当前状态保存到浏览器。'
       },
       difficulty: {
         title: `难度 · ${difficulty.name}`,
@@ -44,10 +44,10 @@ export function attachTooltip() {
       score: { title: `当前军功 ${g.state.score.toLocaleString('zh-CN')}`, body: '击杀、波次与难度会影响军功；失败结算还会加入守完波次和有效交战时长。' },
       wall: { title: `城墙 ${Math.max(0, Math.ceil(g.state.wall))} / ${g.state.wallMax} · 护盾 ${Math.ceil(g.state.shield)} / ${g.shieldCapacity()}`, body: `敌人伤害先经过城防减伤 ${g.wallDefense()}%，再优先消耗护盾；护盾耗尽后才扣除耐久。` },
       pressure: {
-        title: `本波消除 ${g.state.waveMatches} / ${profile.requiredGroups} 组`,
-        body: g.state.waveMatches >= profile.requiredGroups ? '本波建议目标已完成；继续消除仍会获得资源和补强。' : `还差 ${profile.requiredGroups - g.state.waveMatches} 组达到建议节奏；这是引导目标，不会扣除已有收益。`
+        title: `本波补词 ${g.state.waveWords} / ${profile.requiredGroups} 词`,
+        body: g.state.waveWords >= profile.requiredGroups ? '本波建议目标已完成；继续补词仍会获得符文和军功。' : `还差 ${profile.requiredGroups - g.state.waveWords} 词达到建议节奏；这是引导目标，不会扣除已有收益。`
       },
-      combo: { title: `当前连锁 ×${g.state.combo}`, body: g.state.combo > 1 ? '连续掉落形成的新消除会提高奥能、防御能量与军功收益。' : '一次交换后若自动形成连续消除，连锁倍率会逐段提高。' },
+      combo: { title: `连续答对 ${g.state.correctStreak} 词`, body: g.state.correctStreak > 1 ? '连续答对用于战场表现与战报反馈；基本生存资源不依赖连胜。' : '无错误补完当前单词即可开始或延续连续答对。' },
       ember: { title: `余烬储备 ${g.state.emberCharges} / ${g.emberCapacity()}`, body: `每枚红曜石提供 1 次余烬齐射；下一轮开火消耗 1 次，使整轮伤害提高 25%。攻击每升一级，储备上限 +${EMBER_CAP_PER_WEAPON_LEVEL}。` },
       mana: { title: `奥能 ${g.state.mana} / ${g.manaCapacity()}`, body: g.state.mana >= MANA_CAST_COST ? `奥术齐射已经就绪：每次消耗 ${MANA_CAST_COST} 点；攻速每升一级，奥能上限 +${MANA_CAP_PER_CHARM_LEVEL}。` : `还需 ${MANA_CAST_COST - g.state.mana} 点即可发动奥术齐射；当前上限 ${g.manaCapacity()}，攻速每升一级上限 +${MANA_CAP_PER_CHARM_LEVEL}。` },
       energy: { title: `防御能量 ${Math.ceil(g.state.shield)} / ${g.shieldCapacity()}`, body: `绿晶产生防御能量：获得时先用于修复缺失耐久，剩余能量转化为护盾；能量与护盾上限均为耐久上限的 50%。受到伤害时先扣护盾，再扣城墙耐久。` },
@@ -71,7 +71,7 @@ export function attachTooltip() {
       targetHealth: { title: enemy ? `目标生命 ${Math.max(0, Math.ceil(enemy.hp))} / ${enemy.maxHp}` : '目标生命 —', body: enemy ? '生命归零即被歼灭；若先抵达终点则自爆并从战场移除。' : '尚无已进场且可锁定的敌人。' },
       arcaneVolley: { title: g.state.mana >= MANA_CAST_COST ? '奥术齐射 · 就绪' : `奥术齐射 · ${g.state.mana} / ${MANA_CAST_COST} 奥能`, body: `消耗 ${MANA_CAST_COST} 奥能，对所有已进场敌人造成约 ${Math.round(42 + g.totalPower() * .65)} 点基础伤害；场外敌人不受影响。` },
       nextWave: { title: g.state.intermissionUntil ? `下一波还有 ${Math.max(0, Math.ceil((g.state.intermissionUntil - performance.now()) / 1000))} 秒` : '下一批交战中', body: `本波敌军全部肃清后固定整备 ${WAVE_INTERMISSION_MS / 1000} 秒，再自动开始下一波并保存进度。` },
-      forgeProgress: { title: `${upgradeLabel}补强 ${g.state.forge} / ${g.state.forgeTarget}`, body: `升级目标为 LV.${g.state.equipment[upgradeSlot]}→${g.state.equipment[upgradeSlot] + 1}。每个消除组 +1，四连与五连、铸币组会获得额外补强。` },
+      forgeProgress: { title: `${upgradeLabel}补强 ${g.state.forge} / ${g.state.forgeTarget}`, body: `升级目标为 LV.${g.state.equipment[upgradeSlot]}→${g.state.equipment[upgradeSlot] + 1}。补全预告为铸币的单词会获得补强。` },
       weaponLoadout: { title: `${g.equipmentName('weapon')} · LV.${g.state.equipment.weapon}`, body: `当前攻击 ${g.totalPower()}、余烬上限 ${g.emberCapacity()}；每升一级同时提高伤害，并使余烬上限 +${EMBER_CAP_PER_WEAPON_LEVEL}。` },
       armorLoadout: { title: `${g.equipmentName('armor')} · LV.${g.state.equipment.armor}`, body: `当前减伤 ${g.wallDefense()}%，城墙 ${Math.max(0, Math.ceil(g.state.wall))} / ${g.state.wallMax}、护盾上限 ${g.shieldCapacity()}；每升一级使耐久上限 +${ARMOR_WALL_BONUS}、护盾上限 +${ARMOR_SHIELD_BONUS}，并同步修复最多 ${ARMOR_WALL_BONUS} 点。` },
       charmLoadout: { title: `${g.equipmentName('charm')} · LV.${g.state.equipment.charm}`, body: `当前 ${g.attackRate()} 次/秒、${g.volleyLabel()}、奥能上限 ${g.manaCapacity()}；每升一级使奥能上限 +${MANA_CAP_PER_CHARM_LEVEL}。` }

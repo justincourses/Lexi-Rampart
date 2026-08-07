@@ -4,7 +4,11 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#171913" />
-    <title>符文守护</title>
+    <meta name="description" content="词垒守卫（Lexi Rampart）是一款英语单词补全 × 实时塔防浏览器游戏。补全缺失字母，赢取符文并守住城墙。" />
+    <meta property="og:title" content="词垒守卫 · Lexi Rampart" />
+    <meta property="og:description" content="补全英语单词，赢取符文，在不断增强的敌潮中守住城墙。" />
+    <meta property="og:type" content="website" />
+    <title>词垒守卫 · Lexi Rampart</title>
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%23171913'/%3E%3Cpath d='M32 7 53 22 45 49 32 58 19 49 11 22Z' fill='%23d55237' stroke='%23f1ead6' stroke-width='4'/%3E%3Cpath d='M32 17v31M21 30h22' stroke='%23f1ead6' stroke-width='4'/%3E%3C/svg%3E" />
     <script>
       (() => {
@@ -135,10 +139,10 @@
     <main class="game-shell" id="gameShell">
       <header class="topbar">
         <div class="brand-lockup">
-          <img class="chapter-mark" src="./assets/rune-rampart-seal.svg" alt="" width="52" height="52" />
+          <img class="chapter-mark" src="./assets/lexi-rampart-seal.svg" alt="" width="52" height="52" />
           <div>
-            <h1>符文守护</h1>
-            <p>Match-3 Defense / 三消城防战</p>
+            <h1>词垒守卫</h1>
+            <p>Spelling Defense / 英语补词城防战</p>
           </div>
         </div>
 
@@ -210,8 +214,8 @@
         </div>
         <div class="pressure-status" data-tooltip-key="pressure">
           <span id="pressureTierValue">第 1 阶段</span>
-          <strong><b id="waveMatchValue">0</b> / <b id="waveMatchTarget">4</b> 组</strong>
-          <small id="powerDelta">本波建议消除量</small>
+          <strong><b id="waveMatchValue">0</b> / <b id="waveMatchTarget">4</b> 词</strong>
+          <small id="powerDelta">本波建议补词量</small>
         </div>
       </section>
 
@@ -219,12 +223,12 @@
         <section class="panel rune-panel" aria-labelledby="runeTitle">
           <div class="panel-heading">
             <div>
-              <span class="eyebrow">符文工坊 / 01</span>
-              <h2 id="runeTitle">调度符文</h2>
+              <span class="eyebrow">词汇工坊 / 01</span>
+              <h2 id="runeTitle">补全单词</h2>
             </div>
             <div class="combo-badge" id="comboBadge" data-tooltip-key="combo">
-              <span>连锁</span>
-              <strong id="comboValue">×1</strong>
+              <span>连续答对</span>
+              <strong id="comboValue">0</strong>
             </div>
           </div>
 
@@ -240,19 +244,22 @@
             <div class="corner corner-tr"></div>
             <div class="corner corner-bl"></div>
             <div class="corner corner-br"></div>
-            <div class="match-board" id="matchBoard" role="grid" aria-label="七乘七符文棋盘，可点击相邻符文，或拖向上下左右的相邻格并松开换位"></div>
-            <div class="board-effects" id="boardEffects" aria-hidden="true"></div>
-            <div class="cascade-callout" id="cascadeCallout" role="status" aria-live="polite" aria-atomic="true">
-              <span id="cascadeTitle">自动连锁</span>
-              <strong id="cascadeValue">×2</strong>
-              <small id="cascadeMultiplier">收益倍率 ×1.6</small>
-              <div class="cascade-score"><em>累计军功</em><b id="cascadeScore">+0</b></div>
-              <div class="cascade-gains">
-                <span>补强 <b id="cascadeForge">+0</b></span>
-                <span>奥能 <b id="cascadeMana">+0</b></span>
-                <span>防御 <b id="cascadeEnergy">+0</b></span>
+            <section class="spelling-board" id="spellingBoard" aria-labelledby="wordPrompt" aria-describedby="wordStatus">
+              <div class="word-meta">
+                <span class="word-level" id="wordLevel">A1–A2 · 参考 CEFR</span>
+                <strong class="word-reward ember" id="wordReward">◆ 余烬 ×1</strong>
               </div>
-            </div>
+              <div class="word-prompt" id="wordPrompt" role="group" aria-label="当前英语补词题目"></div>
+              <div class="mistake-row" aria-label="本题错误次数">
+                <span>错误机会</span>
+                <i class="mistake-mark" aria-hidden="true">×</i>
+                <i class="mistake-mark" aria-hidden="true">×</i>
+                <i class="mistake-mark" aria-hidden="true">×</i>
+              </div>
+              <p class="word-status" id="wordStatus" role="status" aria-live="polite">按空位顺序选择字母</p>
+              <div class="alphabet-grid" id="alphabetGrid" role="group" aria-label="QWERTY 排列英文字母键盘"></div>
+            </section>
+            <div class="board-effects" id="boardEffects" aria-hidden="true"></div>
             <div class="board-lock" id="boardLock" aria-hidden="true">
               <div class="board-lock-panel">
                 <span class="board-lock-status" id="boardLockStatus">战局暂停</span>
@@ -265,7 +272,7 @@
             </div>
           </div>
 
-          <p class="board-hint"><span>操作：</span>点击相邻符文，或拖到邻位后松开</p>
+          <p class="board-hint"><span>操作：</span>点击 QWERTY 字母区或直接按实体键盘，按从左到右的顺序补空</p>
         </section>
 
         <section class="panel battle-panel" aria-labelledby="battleTitle">
@@ -338,7 +345,7 @@
             <button class="skill-card" id="volleyButton" type="button" data-tooltip-key="arcaneVolley" disabled>
               <span class="skill-icon">✦</span>
               <span><strong>奥术齐射</strong><small>全场伤害 · 消耗 18 奥能</small></span>
-              <kbd>Q</kbd>
+              <kbd>⇧Q</kbd>
             </button>
             <div class="next-wave" data-tooltip-key="nextWave">
               <span>下一批敌军</span>
@@ -406,9 +413,9 @@
     <div class="modal-backdrop is-open" id="introModal" role="dialog" aria-modal="true" aria-labelledby="introTitle" aria-describedby="introDescription">
       <div class="briefing-card campaign-briefing">
         <button class="modal-close" id="introClose" type="button" aria-label="关闭说明">×</button>
-        <span class="briefing-kicker">符文守护 · 战役配置</span>
-        <h2 id="introTitle">调度符文，<br />守住每一波。</h2>
-        <p id="introDescription">前 10 波用于熟悉战场和发展军械；此后敌军每波都会增强，每 10 波再跃升一个阶段。持续消除并正确分配攻击、攻速与防御，才能守得更久。</p>
+        <span class="briefing-kicker">词垒守卫 · 战役配置</span>
+        <h2 id="introTitle">补全单词，<br />守住每一波。</h2>
+        <p id="introDescription">按从左到右的顺序补全英语单词，答对即可赢取符文并发展军械。战场不会因答题暂停；敌军每波增强，每 10 波再跃升一个阶段。</p>
         <p class="briefing-device-note"><b>设备建议</b> 电脑端体验最佳；使用手机时请切换到横屏。</p>
 
         <fieldset class="difficulty-picker">
@@ -416,18 +423,18 @@
           <div class="difficulty-options">
             <button class="difficulty-card is-selected" type="button" data-difficulty="veteran" aria-pressed="true">
               <span><b>萌新</b><i>01</i></span>
-              <strong>每波约 4 组起 · 无限防御</strong>
-              <small>高阶 35% 起 · 约 9 敌起 · 彩蛋偏少</small>
+              <strong>A1–A2 词库 · 通常缺 1 字母</strong>
+              <small>敌军压力较低 · 参考 CEFR 分级 · 无限防御</small>
             </button>
             <button class="difficulty-card" type="button" data-difficulty="endless" aria-pressed="false">
               <span><b>老兵</b><i>02</i></span>
-              <strong>每波约 4 组起 · 无限防御</strong>
-              <small>高阶 42% 起 · 约 9 敌起 · 中段压力</small>
+              <strong>B1–B2 词库 · 通常缺 1–2 字母</strong>
+              <small>中等敌军压力 · 参考 CEFR 分级 · 无限防御</small>
             </button>
             <button class="difficulty-card" type="button" data-difficulty="master" aria-pressed="false">
               <span><b>大佬</b><i>03</i></span>
-              <strong>每波约 5 组起 · 无限防御</strong>
-              <small>高阶 54% 起 · 约 11 敌起 · 无敌军彩蛋</small>
+              <strong>C1–C2 词库 · 通常缺 2–3 字母</strong>
+              <small>高敌军压力 · 参考 CEFR 分级 · 无限防御</small>
             </button>
           </div>
         </fieldset>
@@ -445,7 +452,7 @@
           <div><i class="ember">◆</i><span><b>红曜石</b>储备余烬，储备上限随攻击成长</span></div>
           <div><i class="mana">✦</i><span><b>蓝晶</b>储存奥能，奥能上限随攻速成长</span></div>
           <div><i class="moss">⬟</i><span><b>绿晶</b>产生防御能量：先修耐久，剩余转为护盾</span></div>
-          <div><i class="coin">●</i><span><b>补强</b>每组消除均推进；长连和铸币组额外增加</span></div>
+          <div><i class="coin">●</i><span><b>铸币</b>转化为补强，推动军械自动升级</span></div>
         </div>
         <p class="briefing-music-note"><b>♫ 20 首 MIDI 军乐</b><span>科罗贝尼基 · 欢乐颂 · 四季 · 传统民谣 · 原创战曲 / 自动循环，可随时切歌</span></p>
         <button class="primary-button" id="startButton" type="button"><span>以「萌新」出征</span><small>开始无限防御</small></button>
@@ -466,7 +473,7 @@
         </div>
         <p class="resume-time">保存时间：<time id="resumeSavedAt">刚刚</time></p>
         <div class="resume-actions">
-          <button class="primary-button" id="resumeButton" type="button"><span>继续第 1 波</span><small>恢复棋盘与战场状态</small></button>
+          <button class="primary-button" id="resumeButton" type="button"><span>继续第 1 波</span><small>恢复单词与战场状态</small></button>
           <button class="secondary-button" id="discardSaveButton" type="button"><span>重新部署</span><small>归档旧进度并选择难度</small></button>
         </div>
         <p class="briefing-note">进度仅保存在当前浏览器；每波开始、暂停和离开页面时都会自动更新。</p>
@@ -482,13 +489,13 @@
 
         <div class="rules-grid">
           <section class="rule-section rune-rule">
-            <h3><i aria-hidden="true">✦</i> 符文消除</h3>
+            <h3><i aria-hidden="true">✦</i> 英语补词</h3>
             <ul>
-              <li>点击两枚相邻符文，或按住一枚拖向上下左右的可用邻位；松开鼠标或手指后才会换位。</li>
-              <li>换位后连成 3 枚或以上即可消除；没有形成消除时，符文会自动换回原位。</li>
-              <li>每个消除组提供 1 点补强；四连额外 +1，五连及以上额外 +2，铸币组再额外 +1。</li>
-              <li>红曜石储备余烬齐射，蓝晶积蓄奥能；升级攻击会提高余烬上限，升级攻速会提高奥能上限。</li>
-              <li>绿晶提供防御能量；能量先修复缺失耐久，剩余部分转化为护盾。能量与护盾上限均为耐久上限的 50%。</li>
+              <li>点击 QWERTY 排列的字母区，或直接按实体键盘字母，从左到右依次补全空位；已经填对的字母不会清空。</li>
+              <li>每题最多错 3 个字母；第三次错误会揭示完整答案，短暂停留后自动换词，本题无奖励。</li>
+              <li>萌新使用 A1–A2、老兵使用 B1–B2、大佬使用 C1–C2 参考词库；难度越高，通常隐藏的字母越多。</li>
+              <li>答对会朗读完整单词并获得本题预告的符文；朗读由设备系统语音提供，关闭音效时也会静音。</li>
+              <li>红曜石强化攻击，蓝晶积蓄奥能，绿晶修复或补盾，铸币提供军械补强。</li>
             </ul>
           </section>
 
@@ -517,7 +524,7 @@
           <section class="rule-section relic-rule">
             <h3><i aria-hidden="true">◆</i> 彩蛋效果</h3>
             <ul>
-              <li>萌新每波最多出现 3 个彩蛋怪，老兵最多 1 个，大佬不会出现；棋盘彩蛋仍按各难度独立概率生成。</li>
+              <li>萌新每波最多出现 3 个彩蛋怪，老兵最多 1 个，大佬不会出现。</li>
               <li>彩蛋会触发范围攻击、减速或破甲；每发弹丸消耗 1 次效果，多连发会逐发领取当前符文。</li>
               <li>当前效果与候命数量显示在战场右上角；候命只会在获得新彩蛋时增加，并在效果接替时减少。</li>
             </ul>
@@ -528,7 +535,7 @@
             <ul>
               <li>萌新、老兵与大佬难度都没有终局波次；战役会持续到城墙失守。</li>
               <li>第 1–10 波是适应与发育阶段；从第 11 波开始逐波加压，每进入新的 10 波阶段还会明显跃升。</li>
-              <li>同一难度优先比较守完波数，再比较总分、歼敌与消除成绩。</li>
+              <li>同一难度优先比较守完波数，再比较总分、歼敌与补词成绩。</li>
               <li>结算只计算实际交战时间，暂停不计时；坚守越久会获得更多时间分。</li>
               <li>排行榜会保留旧版本产生的通关战报，但不再给予速通排序优先级。</li>
             </ul>
@@ -537,14 +544,14 @@
           <section class="rule-section save-rule">
             <h3><i aria-hidden="true">Ⅱ</i> 暂停与存档</h3>
             <ul>
-              <li>暂停会立即冻结战斗、消除连锁与所有效果，并保存当前状态。</li>
+              <li>暂停会立即冻结战斗、补词切换与所有效果，并保存当前状态。</li>
               <li>每波开始和离开页面时也会自动保存；下次进入可选择继续或重开。</li>
               <li>从存档继续会立即恢复交战，暂停时间不计入结算时长。</li>
             </ul>
           </section>
         </div>
 
-        <p class="rules-footer"><kbd>Q</kbd> 发动奥术齐射　·　<kbd>Esc</kbd> 关闭规则 / 暂停</p>
+        <p class="rules-footer"><kbd>A–Z</kbd> 补词　·　<kbd>⇧Q</kbd> 奥术齐射　·　<kbd>Esc</kbd> 关闭规则 / 暂停</p>
       </div>
     </div>
 
@@ -561,14 +568,14 @@
           <div><span>难度</span><strong id="finalDifficulty">萌新</strong></div>
           <div><span>守完波次</span><strong id="finalWave">0</strong></div>
           <div><span>歼灭敌军</span><strong id="finalKills">0</strong></div>
-          <div><span>消除组数</span><strong id="finalMatches">0</strong></div>
+          <div><span>完成单词</span><strong id="finalMatches">0</strong></div>
           <div><span>有效时长</span><strong id="finalTime">00:00</strong></div>
           <div><span>结算总分</span><strong id="finalScore">0</strong></div>
         </div>
         <div class="score-ledger">
           <span>结算分构成</span>
           <strong id="finalScoreBreakdown">基础军功 0 + 波次 0 + 坚守时间 0</strong>
-          <small id="scoreRuleNote">只计算实际交战时间，暂停不计时；同一难度优先比较守完波数，再比较总分、歼敌与消除。</small>
+          <small id="scoreRuleNote">只计算实际交战时间，暂停不计时；同一难度优先比较守完波数，再比较总分、歼敌与补词。</small>
         </div>
         <div id="failureHistorySlot">
           <section class="history-board" id="historyBoard" aria-labelledby="historyTitle">
@@ -598,7 +605,7 @@
         <button class="modal-close" id="leaderboardClose" type="button" aria-label="关闭排行榜">×</button>
         <span class="briefing-kicker">本机战报 · LOCAL ARCHIVE</span>
         <h2 id="leaderboardTitle">排行榜</h2>
-        <p id="leaderboardDescription">默认显示总榜；同一难度优先比较守完波数，再比较总分、歼敌与消除。记录仅保存在当前浏览器。</p>
+        <p id="leaderboardDescription">默认显示总榜；同一难度优先比较守完波数，再比较总分、歼敌与补词。记录仅保存在当前浏览器。</p>
         <div id="leaderboardHistorySlot"></div>
       </div>
     </div>

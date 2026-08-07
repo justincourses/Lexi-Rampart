@@ -27,8 +27,8 @@ export function attachHud() {
   }
 
   function updateCombo() {
-    g.$('#comboValue').textContent = `×${g.state.combo}`;
-    g.$('#comboBadge').classList.toggle('is-hot', g.state.combo > 1);
+    g.$('#comboValue').textContent = String(g.state.correctStreak);
+    g.$('#comboBadge').classList.toggle('is-hot', g.state.correctStreak > 1);
   }
 
   function updateSoundButton() {
@@ -79,12 +79,12 @@ export function attachHud() {
     g.$('#energyValue').textContent = `${Math.ceil(g.state.shield)} / ${g.shieldCapacity()}`;
     g.$('#forgeValue').textContent = g.state.forge;
     g.$('#pressureTierValue').textContent = `第 ${profile.stage} 阶段${profile.isBossWave ? ' · BOSS' : ''}`;
-    g.$('#waveMatchValue').textContent = g.state.waveMatches;
+    g.$('#waveMatchValue').textContent = g.state.waveWords;
     g.$('#waveMatchTarget').textContent = profile.requiredGroups;
     g.$('#powerDelta').textContent = g.state.combatBuff
       ? `${RELICS[g.state.combatBuff.type].name} · 剩余 ${g.state.combatBuff.shots} 发`
       : g.upgradeAdvice();
-    g.$('.pressure-status').classList.toggle('is-met', g.state.waveMatches >= profile.requiredGroups);
+    g.$('.pressure-status').classList.toggle('is-met', g.state.waveWords >= profile.requiredGroups);
     g.$('#wallValue').textContent = Math.max(0, Math.ceil(g.state.wall));
     g.$('#wallMaxValue').textContent = g.state.wallMax;
     g.$('#shieldRailValue').textContent = Math.ceil(g.state.shield);

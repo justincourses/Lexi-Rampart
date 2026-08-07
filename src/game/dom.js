@@ -7,7 +7,7 @@ export function attachDom() {
     gameViewport: $('#gameViewport'),
     gameShell: $('#gameShell'),
     orientationGuard: $('#orientationGuard'),
-    board: $('#matchBoard'),
+    board: $('#spellingBoard'),
     boardLock: $('#boardLock'),
     boardLockStatus: $('#boardLockStatus'),
     boardResumeButton: $('#boardResumeButton'),

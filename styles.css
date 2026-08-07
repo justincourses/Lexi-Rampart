@@ -500,6 +500,81 @@ button:focus-visible {
 }
 .match-board.is-collapsing { overflow: hidden; }
 
+.spelling-board {
+  min-height: 100%;
+  display: grid;
+  grid-template-rows: auto minmax(88px, auto) auto auto 1fr;
+  align-content: center;
+  gap: 12px;
+  padding: clamp(18px, 2vw, 26px);
+  color: var(--cream);
+  background:
+    linear-gradient(rgba(18,19,15,.82), rgba(18,19,15,.82)),
+    repeating-linear-gradient(45deg, transparent 0 9px, rgba(255,255,255,.04) 9px 10px);
+  border: 1px solid #10110e;
+  position: relative;
+  z-index: 1;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.word-meta { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.word-level { color: #c8c0a8; font-size: 13px; font-weight: 800; letter-spacing: .1em; }
+.word-reward { padding: 5px 9px; border: 1px solid currentColor; background: rgba(255,255,255,.06); font-size: 14px; letter-spacing: .05em; }
+.word-reward.ember { color: #ee7659; }
+.word-reward.mana { color: #76cae1; }
+.word-reward.moss { color: #92c273; }
+.word-reward.coin { color: #f1c75e; }
+.word-prompt { display: flex; align-items: center; justify-content: center; gap: clamp(3px, .55vw, 8px); min-width: 0; padding: 16px 2px 9px; }
+.word-slot {
+  min-width: 0;
+  width: clamp(24px, 3.2vw, 42px);
+  height: clamp(48px, 5vw, 68px);
+  display: grid;
+  place-items: center;
+  color: #f4edd5;
+  border-bottom: 3px solid #777665;
+  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  font-size: clamp(25px, 3vw, 40px);
+  font-weight: 900;
+  line-height: 1;
+  text-shadow: 0 2px 3px rgba(0,0,0,.75);
+}
+.word-slot.is-missing { color: #f0bd48; border-color: #d55237; background: rgba(213,82,55,.08); }
+.word-slot.is-filled { animation: letter-lock .22s cubic-bezier(.18,.82,.25,1); }
+.word-slot.is-revealed { color: #ff8b71; animation: tile-shake .28s ease; }
+.mistake-row { display: flex; align-items: center; justify-content: center; gap: 7px; color: #aaa28d; font-size: 12px; font-weight: 800; letter-spacing: .08em; }
+.mistake-mark { width: 19px; height: 19px; display: grid; place-items: center; border: 1px solid #676658; border-radius: 50%; color: transparent; font-style: normal; line-height: 1; }
+.mistake-mark.is-used { color: #fff0d4; background: #a53d31; border-color: #ef765f; animation: letter-error .25s ease; }
+.word-status { min-height: 20px; margin: 0; color: #b9b19c; text-align: center; font-size: 13px; font-weight: 800; letter-spacing: .06em; }
+.word-status.is-completed { color: #a9dc82; }
+.word-status.is-revealed { color: #ff8b71; }
+.alphabet-grid { display: grid; grid-template-columns: repeat(20, 1fr); align-content: end; gap: 6px 3px; }
+.letter-button {
+  grid-column: span 2;
+  min-width: 0;
+  min-height: 38px;
+  padding: 4px 2px;
+  color: #f4edd5;
+  background: linear-gradient(180deg, #4a4b40, #31322b);
+  border: 1px solid #777665;
+  border-bottom: 3px solid #151611;
+  border-radius: 4px;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.13);
+  cursor: pointer;
+  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  font-size: 16px;
+  font-weight: 900;
+  transition: transform .1s ease, filter .1s ease, background .1s ease;
+}
+.letter-button:nth-child(11) { grid-column: 2 / span 2; }
+.letter-button:nth-child(20) { grid-column: 4 / span 2; }
+.letter-button:hover:not(:disabled) { filter: brightness(1.2); transform: translateY(-1px); }
+.letter-button:active:not(:disabled) { transform: translateY(2px); border-bottom-width: 1px; }
+.letter-button:focus-visible { outline: 3px solid #f4d675; outline-offset: 2px; }
+.letter-button.is-last-wrong { color: #fff1d5; background: #87352c; animation: letter-error .28s ease; }
+.letter-button:disabled { cursor: default; opacity: .58; }
+.spelling-burst { z-index: 7; }
+
 .rune-tile {
   position: relative;
   min-width: 0;
@@ -1222,6 +1297,8 @@ button:focus-visible {
 @keyframes rune-spark { 0% { opacity: 0; transform: translate(-50%,-50%) scale(.3) rotate(0); } 18% { opacity: 1; } 100% { opacity: 0; transform: translate(calc(-50% + var(--dx)), calc(-50% + var(--dy))) scale(.2) rotate(210deg); } }
 @keyframes cascade-value-pop { 45% { color: #fff8d9; transform: scale(1.24) rotate(2deg); text-shadow: 0 0 24px #efbf54; } }
 @keyframes cascade-reward-pop { from { opacity: .45; transform: translateY(5px) scale(.88); } 55% { color: #fff4bf; transform: translateY(-2px) scale(1.12); } }
+@keyframes letter-lock { 55% { color: #fff7ce; transform: translateY(-5px) scale(1.15); text-shadow: 0 0 18px #e9b84f; } }
+@keyframes letter-error { 35% { transform: translateX(-3px); } 70% { transform: translateX(3px); } }
 @keyframes resource-gain { 25% { color: var(--cream); transform: translateY(-4px) scale(1.06); filter: brightness(1.45); box-shadow: 0 6px 0 currentColor, 0 0 18px currentColor; } }
 @keyframes resource-spend { 28% { transform: translateY(2px) scale(.94); filter: brightness(1.35); box-shadow: inset 0 0 0 2px currentColor; } }
 @keyframes resource-delta { 0% { opacity: 0; transform: translateY(7px) scale(.75); } 18%, 68% { opacity: 1; transform: translateY(0) scale(1); } 100% { opacity: 0; transform: translateY(-15px) scale(.92); } }
@@ -1486,6 +1563,11 @@ button:focus-visible {
   .legend-item { grid-template-columns: 18px 1fr; padding: 5px 4px; }
   .legend-item i { font-size: 14px; }
   .match-board { gap: 3px; padding: 7px; }
+  .spelling-board { gap: 8px; padding: 14px 10px; }
+  .word-prompt { gap: 3px; padding-top: 8px; }
+  .word-slot { width: clamp(21px, 6.6vw, 34px); height: 44px; font-size: clamp(20px, 6vw, 30px); }
+  .alphabet-grid { gap: 4px; }
+  .letter-button { min-height: 34px; font-size: 14px; }
   .rune-symbol { font-size: 20px; }
   .battlefield { height: 380px; }
   .threat-cluster { top: 8px; right: 8px; width: min(calc(100% - 82px), 245px); }

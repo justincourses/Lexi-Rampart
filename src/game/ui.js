@@ -67,6 +67,7 @@ export function attachUi() {
       g.checkForge();
     }
     g.syncPauseUi();
+    g.renderSpelling();
     if (g.state.paused) {
       const saved = g.saveProgress('pause');
       g.music.stop();
@@ -94,13 +95,12 @@ export function attachUi() {
     g.state.score = 0; g.state.kills = 0; g.state.wave = 1; g.state.emberCharges = 0; g.state.mana = 0; g.state.shield = 0; g.state.repaired = 0;
     g.state.forge = 0; g.state.forgeTarget = FORGE_START; g.state.equipment = { weapon: 1, armor: 1, charm: 1 };
     g.state.upgradeMode = 'auto'; g.state.autoUpgradeIndex = 0; g.state.combatBuff = null; g.state.combatBuffQueue = [];
-    g.state.wallMax = 1120; g.state.wall = 1120; g.state.combo = 1; g.state.enemyId = 0;
+    g.state.wallMax = 1120; g.state.wall = 1120; g.state.combo = 0; g.state.correctStreak = 0; g.state.enemyId = 0;
     g.state.waveQueue = 0; g.state.waveTotal = 0; g.state.waveSpawned = 0; g.state.waveBossesRemaining = 0; g.state.enemyRelicsSpawnedThisWave = 0;
-    g.state.waveMatches = 0; g.state.totalMatches = 0; g.state.waveProfile = null; g.state.intermissionUntil = 0;
+    g.state.waveMatches = 0; g.state.totalMatches = 0; g.state.waveWords = 0; g.state.totalWords = 0; g.state.waveProfile = null; g.state.intermissionUntil = 0;
     g.state.attackReadyAt = 0; g.state.lastFrame = performance.now(); g.state.playSegmentStartedAt = g.state.lastFrame; g.state.lastUiAt = 0; g.state.pendingSaveReason = null;
     g.clearBattleLayers();
-    g.buildBoard();
-    g.renderBoard(new Set(), -1, 'initial');
+    g.resetSpelling();
     g.updateCombo();
     g.els.gameOverModal.classList.remove('is-open');
     g.els.resumeModal.classList.remove('is-open');

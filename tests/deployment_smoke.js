@@ -32,7 +32,7 @@ try {
     const manifestResponse = await fetch('/asset-manifest.json', { cache: 'no-cache' });
     const manifest = await manifestResponse.json();
     return {
-      buildMeta: document.querySelector('meta[name="rune-rampart-build"]')?.content,
+      buildMeta: document.querySelector('meta[name="lexi-rampart-build"]')?.content,
       readyBuild: document.documentElement.dataset.build,
       manifestBuild: manifest.buildId,
       recoveryVisible: Boolean(document.querySelector('#assetRecoveryPanel')),

@@ -13,6 +13,7 @@ import { attachHistory } from './history.js';
 import { attachSave } from './save.js';
 import { attachMathBridge } from './math-bridge.js';
 import { attachBoard } from './board.js';
+import { attachSpelling } from './spelling.js';
 import { attachCombatStats } from './combat-stats.js';
 import { attachHud } from './hud.js';
 import { attachCombat } from './combat.js';
@@ -20,7 +21,7 @@ import { attachUi } from './ui.js';
 import { attachEvents } from './events.js';
 import { attachBoot } from './boot.js';
 
-if (!GAME_CONFIG?.difficulties) throw new Error('Missing Rune Guard game configuration');
+if (!GAME_CONFIG?.difficulties) throw new Error('Missing Lexi Rampart game configuration');
 
 /** Compose domain modules and start the client runtime. */
 export function startGame() {
@@ -37,6 +38,7 @@ export function startGame() {
   attachSave();
   attachMathBridge();
   attachBoard();
+  attachSpelling();
   attachCombatStats();
   attachHud();
   attachCombat();

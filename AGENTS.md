@@ -33,13 +33,13 @@ npm run deploy    # build 后 wrangler pages deploy
   - `src/game/music-tracks.js` — 曲目数据
   - `src/game/storage.js` — localStorage 读写
   - `src/game/utils.js` — 纯工具
-  - `src/game/match-logic.js` — 三消纯逻辑（可单测）
+  - `src/game/spelling-logic.js` / `word-lists.js` — 补词纯逻辑、静态词库装载（可单测）
   - `src/game/combat-math.js` — 波次/军械/平衡纯公式（可单测）
   - `src/game/tasks.js` — 可暂停任务调度
   - `src/game/shared.js` — 运行时共享袋 `g`
   - `src/game/dom.js` / `layout.js` / `audio.js` / `state.js` — DOM、适配、音频、状态
   - `src/game/tooltip.js` / `history.js` / `save.js` — 提示、战报、存档
-  - `src/game/math-bridge.js` / `board.js` / `combat-stats.js` / `combat.js` — 数值桥、棋盘、战斗
+  - `src/game/spelling.js` / `math-bridge.js` / `combat-stats.js` / `combat.js` — 补词输入、数值桥、战斗
   - `src/game/hud.js` / `ui.js` / `events.js` / `boot.js` — HUD、界面、事件、启动
   - `src/game/runtime.js` — 按依赖顺序 `attach*` 组装
 - 领域模块通过 `attachX()` 往 `g` 挂方法；跨模块调用一律 `g.xxx`

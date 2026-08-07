@@ -19,7 +19,7 @@ const html = fs.readFileSync(htmlPath, 'utf8');
 const headers = fs.readFileSync(headersPath, 'utf8');
 const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
 if (!manifest.buildId || !Array.isArray(manifest.assets) || manifest.assets.length < 2) fail('asset manifest is incomplete');
-if (!html.includes(`name="rune-rampart-build" content="${manifest.buildId}"`)) fail('HTML build id does not match the manifest');
+if (!html.includes(`name="lexi-rampart-build" content="${manifest.buildId}"`)) fail('HTML build id does not match the manifest');
 if (!html.includes('__runeRampartAssetRecovery')) fail('asset recovery bootstrap is missing');
 if (!headers.includes('/_app/*') || !headers.includes('max-age=31536000, immutable')) fail('immutable build-asset caching is missing');
 if (!headers.includes('no-cache, max-age=0, must-revalidate')) fail('HTML revalidation policy is missing');

@@ -4,19 +4,12 @@ import {
   MANA_CAST_COST, DEFAULT_DIFFICULTY, ENEMY_ENTRY_X, ENEMY_NAMES, DIFFICULTIES, RELICS, TYPES
 } from './constants.js';
 import { safeNumber } from './utils.js';
+import { RUNE_REWARD_TYPES } from './spelling-logic.js';
 
 export function attachEvents() {
-  g.els.board.addEventListener('pointerdown', g.beginRuneDrag);
-  window.addEventListener('pointermove', g.moveRuneDrag, { passive: false });
-  window.addEventListener('pointerup', g.endRuneDrag);
-  window.addEventListener('pointercancel', g.cancelRuneDrag);
   g.els.board.addEventListener('click', (event) => {
-    if (event.detail !== 0 && performance.now() < g.suppressBoardClickUntil) {
-      event.preventDefault();
-      return;
-    }
-    const tile = event.target.closest('.rune-tile');
-    if (tile) g.handleTile(Number(tile.dataset.index));
+    const button = event.target.closest('.letter-button');
+    if (button) g.handleLetter(button.dataset.letter);
   });
   g.$('#startButton').addEventListener('click', g.resetGame);
   g.$('#resumeButton').addEventListener('click', () => g.restoreProgress());
@@ -73,7 +66,12 @@ export function attachEvents() {
   });
   document.addEventListener('click', g.hideContextTooltip, true);
   document.addEventListener('keydown', (event) => {
-    if (event.key.toLowerCase() === 'q') g.castVolley();
+    if (event.shiftKey && event.key.toLowerCase() === 'q') {
+      event.preventDefault();
+      g.castVolley();
+    } else if (!event.metaKey && !event.ctrlKey && !event.altKey && /^[a-z]$/i.test(event.key)) {
+      if (g.handleLetter(event.key)) event.preventDefault();
+    }
     if (event.key === 'Escape' && g.els.leaderboardModal.classList.contains('is-open')) g.closeLeaderboard();
     else if (event.key === 'Escape' && g.els.rulesModal.classList.contains('is-open')) g.closeRules();
     else if (event.key === 'Escape' && g.state.started && g.els.introModal.classList.contains('is-open')) g.closeCampaignOptions();
@@ -97,6 +95,37 @@ export function attachEvents() {
         g.state.forge += Number(amount) || g.state.forgeTarget;
         g.checkForge();
         g.updateUI();
+      },
+      spellingRound() {
+        const round = g.state.spellingRound;
+        return round ? { ...round, hiddenIndices: [...round.hiddenIndices], filledIndices: [...round.filledIndices] } : null;
+      },
+      inputLetter(letter) {
+        return g.handleLetter(letter);
+      },
+      forceWord(word, level = 'A1', hiddenIndices = [1], runeType = 'ember', runeAmount = 1) {
+        const normalizedWord = String(word || '').toLowerCase();
+        if (!/^[a-z]{3,12}$/.test(normalizedWord)) return false;
+        const indices = [...new Set(hiddenIndices.map(Number))].filter((index) => Number.isInteger(index) && index >= 0 && index < normalizedWord.length).slice(0, 3).sort((a, b) => a - b);
+        if (!indices.length || normalizedWord.length - indices.length < 2) return false;
+        g.state.spellingRound = {
+          word: normalizedWord,
+          level: String(level).toUpperCase(),
+          hiddenIndices: indices,
+          filledIndices: [],
+          errors: 0,
+          status: 'playing',
+          runeType: RUNE_REWARD_TYPES.includes(runeType) ? runeType : 'ember',
+          runeAmount: Math.max(1, Math.min(3, Math.floor(Number(runeAmount) || 1))),
+          lastInput: '',
+          lastResult: ''
+        };
+        g.state.locked = false;
+        g.renderSpelling();
+        return true;
+      },
+      nextWord() {
+        return { ...g.prepareSpellingRound(), hiddenIndices: [...g.state.spellingRound.hiddenIndices] };
       },
       setEmberCharges(amount = 0) {
         g.state.emberCharges = Math.max(0, Math.min(g.emberCapacity(), Math.floor(Number(amount) || 0)));
@@ -168,7 +197,7 @@ export function attachEvents() {
         g.state.wave = g.normalizeWave(values.wave, g.state.difficulty, g.state.wave);
         g.state.score = Math.floor(safeNumber(values.score, g.state.score, 0));
         g.state.kills = Math.floor(safeNumber(values.kills, g.state.kills, 0));
-        g.state.totalMatches = Math.floor(safeNumber(values.totalMatches, g.state.totalMatches, 0));
+        g.state.totalWords = Math.floor(safeNumber(values.totalWords, values.totalMatches ?? g.state.totalWords, 0));
         g.state.repaired = Math.floor(safeNumber(values.repaired, g.state.repaired, 0));
         g.state.activePlayMs = safeNumber(values.activePlayMs, g.state.activePlayMs, 0);
         g.state.playSegmentStartedAt = 0;
@@ -359,6 +388,14 @@ export function attachEvents() {
           shieldMax: g.shieldCapacity(),
           waveMatches: g.state.waveMatches,
           totalMatches: g.state.totalMatches,
+          waveWords: g.state.waveWords,
+          totalWords: g.state.totalWords,
+          correctStreak: g.state.correctStreak,
+          spellingRound: g.state.spellingRound ? {
+            ...g.state.spellingRound,
+            hiddenIndices: [...g.state.spellingRound.hiddenIndices],
+            filledIndices: [...g.state.spellingRound.filledIndices]
+          } : null,
           waveProfile: g.state.waveProfile,
           enemyRelicsSpawnedThisWave: g.state.enemyRelicsSpawnedThisWave,
           combatBuff: g.state.combatBuff ? { ...g.state.combatBuff } : null,

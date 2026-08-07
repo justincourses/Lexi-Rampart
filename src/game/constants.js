@@ -48,7 +48,7 @@ export const FORGE_EARLY_LEVELS = 4;
 export const UPGRADE_SLOTS = ['weapon', 'armor', 'charm'];
 export const ENEMY_ENTRY_X = 98;
 export const TARGET_ACQUIRE_DELAY = 220;
-export const SAVE_VERSION = 1;
+export const SAVE_VERSION = 2;
 export const STORAGE_KEYS = {
   difficulty: 'runeRampart.difficulty',
   muted: 'runeRampart.muted',

@@ -77,7 +77,8 @@ export function attachHistory() {
       timeScore,
       settlementScore: Math.floor(safeNumber(record.settlementScore, Math.min(MAX_SAFE_GAME_INTEGER, baseScore + waveScore + timeScore), 0, MAX_SAFE_GAME_INTEGER)),
       kills: Math.floor(safeNumber(record.kills, 0, 0, MAX_SAFE_GAME_INTEGER)),
-      totalMatches: Math.floor(safeNumber(record.totalMatches, 0, 0, MAX_SAFE_GAME_INTEGER)),
+      totalWords: Math.floor(safeNumber(record.totalWords, record.totalMatches ?? 0, 0, MAX_SAFE_GAME_INTEGER)),
+      totalMatches: Math.floor(safeNumber(record.totalMatches, record.totalWords ?? 0, 0, MAX_SAFE_GAME_INTEGER)),
       repaired: Math.floor(safeNumber(record.repaired, 0, 0, MAX_SAFE_GAME_INTEGER))
     };
   }
@@ -88,7 +89,7 @@ export function attachHistory() {
       || second.clearedWaves - first.clearedWaves
       || second.settlementScore - first.settlementScore
       || second.kills - first.kills
-      || second.totalMatches - first.totalMatches
+      || second.totalWords - first.totalWords
       || first.achievedAt - second.achievedAt
     ));
   }
@@ -127,7 +128,7 @@ export function attachHistory() {
       timeScore,
       settlementScore: Math.min(MAX_SAFE_GAME_INTEGER, g.state.score + waveScore + timeScore),
       kills: g.state.kills,
-      totalMatches: g.state.totalMatches,
+      totalWords: g.state.totalWords,
       repaired: g.state.repaired
     });
   }
@@ -204,7 +205,7 @@ export function attachHistory() {
     g.$('#finalDifficulty').textContent = DIFFICULTIES[record.difficulty].name;
     g.$('#finalWave').textContent = g.formatWaveProgress(record.clearedWaves, record.difficulty);
     g.$('#finalKills').textContent = record.kills;
-    g.$('#finalMatches').textContent = record.totalMatches;
+    g.$('#finalMatches').textContent = record.totalWords;
     g.$('#finalTime').textContent = formatBattleTime(record.activePlayMs);
     g.$('#finalScore').textContent = record.settlementScore.toLocaleString('zh-CN');
     g.$('#finalRank').textContent = `#${String(rank).padStart(2, '0')}`;

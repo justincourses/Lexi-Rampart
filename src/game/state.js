@@ -14,6 +14,13 @@ export function attachState() {
     combatBuff: null, combatBuffQueue: [], introWasPaused: false, rulesWasPaused: false, leaderboardWasPaused: false, pendingSaveReason: null,
     resolution: null, pausedAt: 0, activePlayMs: 0, playSegmentStartedAt: 0, settlementRecorded: false
   };
+  g.state.spellingRound = null;
+  g.state.wordBag = [];
+  g.state.runeBag = [];
+  g.state.previousHiddenEdge = '';
+  g.state.correctStreak = 0;
+  g.state.waveWords = 0;
+  g.state.totalWords = 0;
   g.pendingResume = null;
   g.settlementHistory = [];
   g.currentSettlementId = null;

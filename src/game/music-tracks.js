@@ -30,7 +30,7 @@ export const MUSIC_TRACKS = [
     harmony: [67, null, 67, null, 71, null, 67, null, 64, null, 64, null, 67, null, 62, null, 60, null, 60, null, 64, null, 60, null, 57, null, 59, null, 62, null, 64, null]
   },
   {
-    title: '城垣余火 · 原创战曲', source: '符文守护原创', bpm: 104, cycles: 3,
+    title: '城垣余火 · 原创战曲', source: '词垒守卫原创', bpm: 104, cycles: 3,
     melody: [74, null, 77, 76, 74, null, 72, 69, 70, null, 74, 72, 69, null, 67, 65, 69, null, 72, 74, 77, null, 76, 72, 74, null, 72, 69, 67, null, 69, 72],
     bass: [38, null, null, null, 38, null, 45, null, 41, null, null, null, 36, null, 43, null, 38, null, null, null, 34, null, 41, null, 36, null, null, null, 33, null, 36, null],
     harmony: [62, null, null, null, null, null, 60, null, 58, null, null, null, 57, null, 55, null, 57, null, null, null, 62, null, 60, null, 58, null, null, null, 55, null, 57, null]

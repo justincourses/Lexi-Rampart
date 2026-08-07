@@ -510,7 +510,7 @@ export function attachBoard() {
 
   function resetCascadeSettlement() {
     g.cascadeSettlementToken = (g.cascadeSettlementToken || 0) + 1;
-    g.els.cascadeCallout.classList.remove('is-visible', 'is-updating', 'is-complete');
+    g.els.cascadeCallout?.classList.remove('is-visible', 'is-updating', 'is-complete');
   }
 
   function constrainedEffectsDevice() {
