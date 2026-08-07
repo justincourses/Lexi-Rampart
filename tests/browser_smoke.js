@@ -1,0 +1,1414 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import { createRequire } from 'node:module';
+import { fileURLToPath } from 'node:url';
+
+const require = createRequire(import.meta.url);
+const { chromium } = require('playwright');
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+const root = path.resolve(__dirname, '..');
+const output = path.join(root, 'test-output');
+fs.mkdirSync(output, { recursive: true });
+
+function matched(board) {
+  const hits = new Set();
+  for (let row = 0; row < 7; row += 1) {
+    for (let col = 0; col < 5; col += 1) {
+      const start = row * 7 + col;
+      if (board[start] === board[start + 1] && board[start] === board[start + 2]) {
+        hits.add(start); hits.add(start + 1); hits.add(start + 2);
+      }
+    }
+  }
+  for (let col = 0; col < 7; col += 1) {
+    for (let row = 0; row < 5; row += 1) {
+      const start = row * 7 + col;
+      if (board[start] === board[start + 7] && board[start] === board[start + 14]) {
+        hits.add(start); hits.add(start + 7); hits.add(start + 14);
+      }
+    }
+  }
+  return hits;
+}
+
+function validSwap(board) {
+  for (let index = 0; index < 49; index += 1) {
+    const row = Math.floor(index / 7);
+    const col = index % 7;
+    const neighbours = [];
+    if (col < 6) neighbours.push(index + 1);
+    if (row < 6) neighbours.push(index + 7);
+    for (const neighbour of neighbours) {
+      const candidate = [...board];
+      [candidate[index], candidate[neighbour]] = [candidate[neighbour], candidate[index]];
+      if (matched(candidate).size) return [index, neighbour];
+    }
+  }
+  throw new Error('Generated board has no valid move');
+}
+
+function validSwapWithInvalidDecoy(board) {
+  const neighboursOf = (index) => {
+    const row = Math.floor(index / 7);
+    const col = index % 7;
+    return [
+      col > 0 ? index - 1 : null,
+      col < 6 ? index + 1 : null,
+      row > 0 ? index - 7 : null,
+      row < 6 ? index + 7 : null
+    ].filter((value) => value !== null);
+  };
+  const createsMatch = (first, second) => {
+    const candidate = [...board];
+    [candidate[first], candidate[second]] = [candidate[second], candidate[first]];
+    return matched(candidate).size > 0;
+  };
+  for (let origin = 0; origin < 49; origin += 1) {
+    const neighbours = neighboursOf(origin);
+    const target = neighbours.find((index) => createsMatch(origin, index));
+    const decoy = neighbours.find((index) => index !== target && !createsMatch(origin, index));
+    if (target !== undefined && decoy !== undefined) return { origin, target, decoy };
+  }
+  throw new Error('Generated board has no valid swap with a different invalid drag decoy');
+}
+
+function expectedDropPlan(matchIndices) {
+  const removed = new Set(matchIndices);
+  const plan = new Map();
+  for (let col = 0; col < 7; col += 1) {
+    const survivors = [];
+    for (let row = 6; row >= 0; row -= 1) {
+      if (!removed.has(row * 7 + col)) survivors.push(row);
+    }
+    const spawnedRows = 7 - survivors.length;
+    for (let row = 6, cursor = 0; row >= 0; row -= 1, cursor += 1) {
+      const sourceRow = survivors[cursor];
+      const dropRows = sourceRow === undefined ? spawnedRows : row - sourceRow;
+      if (dropRows > 0) plan.set(row * 7 + col, dropRows);
+    }
+  }
+  return plan;
+}
+
+async function assertMinimumFont(page, context) {
+  const offenders = await page.evaluate(() => [...document.querySelectorAll('body *')]
+    .filter((node) => {
+      const style = getComputedStyle(node);
+      const hasDirectText = [...node.childNodes].some(
+        (child) => child.nodeType === Node.TEXT_NODE && child.textContent.trim()
+      );
+      return hasDirectText && style.display !== 'none' && style.visibility !== 'hidden'
+        && Number.parseFloat(style.fontSize) < 14;
+    })
+    .map((node) => ({
+      tag: node.tagName,
+      className: node.className,
+      size: getComputedStyle(node).fontSize,
+      text: node.textContent.trim().slice(0, 40)
+    })));
+  if (offenders.length) throw new Error(`${context} contains text smaller than 14px: ${JSON.stringify(offenders)}`);
+}
+
+let activeBrowser;
+
+(async () => {
+  const defaultChromePath = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+  const executablePath = process.env.CHROME_PATH || (fs.existsSync(defaultChromePath) ? defaultChromePath : undefined);
+  const browser = await chromium.launch({ headless: true, ...(executablePath ? { executablePath } : {}) });
+  activeBrowser = browser;
+  const context = await browser.newContext({ viewport: { width: 1440, height: 1050 }, deviceScaleFactor: 1 });
+  const page = await context.newPage();
+  const errors = [];
+  page.on('pageerror', (error) => errors.push(`pageerror: ${error.message}`));
+  page.on('console', (message) => { if (message.type() === 'error') errors.push(`console: ${message.text()}`); });
+  page.on('requestfailed', (request) => {
+    const failure = request.failure();
+    errors.push(`request: ${request.url()} ${failure ? failure.errorText : 'failed'}`);
+  });
+
+  await page.goto('http://127.0.0.1:4173/?testMode=1', { waitUntil: 'networkidle' });
+  if (await page.title() !== '符文守护') throw new Error('Unexpected page title');
+  if (!await page.locator('#introModal').evaluate((node) => node.classList.contains('is-open'))) throw new Error('Briefing modal is not open');
+  if (await page.locator('.difficulty-card').count() !== 3) throw new Error('Difficulty picker does not have three levels');
+  const difficultyNames = await page.locator('.difficulty-card span b').allInnerTexts();
+  if (difficultyNames.join('/') !== '萌新/老兵/大佬') throw new Error(`Unexpected difficulty names: ${difficultyNames.join('/')}`);
+  if (!await page.locator('[data-difficulty="veteran"]').evaluate((node) => node.classList.contains('is-selected'))) throw new Error('Rookie replacement is not selected by default');
+  const configuredDefenseModes = await page.evaluate(() => ({
+    veteran: window.__runeRampartTest.difficultySettings('veteran').infinite,
+    master: window.__runeRampartTest.difficultySettings('master').infinite,
+    endless: window.__runeRampartTest.difficultySettings('endless').infinite
+  }));
+  if (Object.values(configuredDefenseModes).some((infinite) => infinite !== true)) throw new Error(`Not every difficulty uses infinite defense: ${JSON.stringify(configuredDefenseModes)}`);
+  if (!await page.locator('.briefing-device-note').innerText().then((text) => text.includes('电脑端体验最佳') && text.includes('横屏'))) throw new Error('Welcome screen does not explain the recommended device orientation');
+  if (!await page.locator('.briefing-music-note').innerText().then((text) => text.includes('科罗贝尼基') && text.includes('自动循环'))) throw new Error('Welcome screen does not explain the MIDI playlist');
+  await assertMinimumFont(page, 'Desktop welcome');
+  await page.screenshot({ path: path.join(output, 'welcome.png'), fullPage: false });
+  await page.locator('[data-difficulty="endless"]').click();
+  await page.locator('#startButton').click();
+  await page.waitForTimeout(700);
+  await page.evaluate(() => window.__runeRampartTest.clearWave(100));
+  await page.waitForTimeout(150);
+  const endlessAtHundred = await page.evaluate(() => ({
+    snapshot: window.__runeRampartTest.snapshot(),
+    waveLabel: document.querySelector('#waveLabel').textContent,
+    waveValue: document.querySelector('#waveValue').textContent,
+    victoryModalExists: Boolean(document.querySelector('#victoryModal'))
+  }));
+  if (endlessAtHundred.snapshot.wave !== 100 || !endlessAtHundred.snapshot.infinite || endlessAtHundred.snapshot.gameOver || endlessAtHundred.victoryModalExists || endlessAtHundred.waveLabel !== '波次' || endlessAtHundred.waveValue !== '100' || endlessAtHundred.snapshot.intermissionRemaining < 2700) throw new Error(`Infinite defense stopped or showed a total at wave 100: ${JSON.stringify(endlessAtHundred)}`);
+  await page.evaluate(() => window.__runeRampartTest.clearWave(101));
+  await page.waitForTimeout(150);
+  const endlessAfterHundred = await page.evaluate(() => window.__runeRampartTest.snapshot());
+  if (endlessAfterHundred.wave !== 101 || endlessAfterHundred.waveProfile.wave !== 101 || endlessAfterHundred.gameOver) throw new Error(`Endless mode cannot continue past wave 100: ${JSON.stringify(endlessAfterHundred)}`);
+  await page.locator('#helpButton').click();
+  await page.locator('[data-difficulty="veteran"]').click();
+  if (!await page.locator('[data-difficulty="veteran"]').evaluate((node) => node.classList.contains('is-selected'))) throw new Error('Veteran difficulty was not selected');
+  if (await page.evaluate(() => localStorage.getItem('runeRampart.difficulty')) !== 'veteran') throw new Error('Difficulty selection was not persisted');
+  await page.locator('#startButton').click();
+  await page.waitForTimeout(700);
+
+  if (await page.locator('.rune-tile').count() !== 49) throw new Error('Board does not have 49 tiles');
+  await page.locator('.rune-tile').first().click();
+  if (await page.locator('.rune-tile.selected').count() !== 1) throw new Error('Short click no longer selects a rune after adding drag controls');
+  await page.locator('.rune-tile').first().click();
+  if (await page.locator('.rune-tile.selected').count() !== 0) throw new Error('Clicking the selected rune no longer cancels selection');
+  const cornerBeforeDrag = await page.evaluate(() => window.__runeRampartTest.snapshot().board.join(','));
+  const cornerBox = await page.locator('.rune-tile').first().boundingBox();
+  if (!cornerBox) throw new Error('Top-left rune is not visible for edge-drag testing');
+  await page.mouse.move(cornerBox.x + cornerBox.width / 2, cornerBox.y + cornerBox.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(cornerBox.x - cornerBox.width * .65, cornerBox.y + cornerBox.height / 2, { steps: 3 });
+  const edgeDrag = await page.evaluate(() => ({
+    options: document.querySelectorAll('.rune-tile.is-drag-option').length,
+    targets: document.querySelectorAll('.rune-tile.is-drag-target').length,
+    armed: document.querySelector('#matchBoard').classList.contains('is-drag-armed'),
+    originTransform: getComputedStyle(document.querySelector('.rune-tile.is-drag-origin')).transform
+  }));
+  if (edgeDrag.options || edgeDrag.targets || edgeDrag.armed || edgeDrag.originTransform === 'none') throw new Error(`Board edge drag changes a non-origin tile or selects a wall-facing target: ${JSON.stringify(edgeDrag)}`);
+  await page.mouse.up();
+  await page.waitForTimeout(40);
+  const cornerAfterDrag = await page.evaluate(() => ({
+    board: window.__runeRampartTest.snapshot().board.join(','),
+    dragClasses: document.querySelectorAll('.is-drag-origin, .is-drag-option, .is-drag-target').length,
+    selected: document.querySelectorAll('.rune-tile.selected').length
+  }));
+  if (cornerAfterDrag.board !== cornerBeforeDrag || cornerAfterDrag.dragClasses || cornerAfterDrag.selected) throw new Error(`Disabled edge drag changed board state: ${JSON.stringify(cornerAfterDrag)}`);
+  const directionHysteresis = await page.evaluate(() => {
+    const boardElement = document.querySelector('#matchBoard');
+    const center = (index) => {
+      const rect = boardElement.querySelector(`[data-index="${index}"]`).getBoundingClientRect();
+      return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+    };
+    const start = center(24);
+    const right = center(25);
+    const down = center(31);
+    const pointer = { bubbles: true, pointerId: 61, pointerType: 'mouse', isPrimary: true, button: 0 };
+    boardElement.querySelector('[data-index="24"]').dispatchEvent(new PointerEvent('pointerdown', {
+      ...pointer,
+      clientX: start.x,
+      clientY: start.y
+    }));
+    boardElement.dispatchEvent(new PointerEvent('pointermove', {
+      ...pointer,
+      clientX: start.x + (right.x - start.x) * .36,
+      clientY: start.y
+    }));
+    const firstState = window.__runeRampartTest.dragState();
+    boardElement.dispatchEvent(new PointerEvent('pointermove', {
+      ...pointer,
+      clientX: start.x + (right.x - start.x) * .36,
+      clientY: start.y + (down.y - start.y) * .8
+    }));
+    const secondState = window.__runeRampartTest.dragState();
+    boardElement.dispatchEvent(new PointerEvent('pointercancel', pointer));
+    return {
+      firstTarget: firstState?.targetIndex,
+      secondTarget: secondState?.targetIndex,
+      firstArmed: firstState?.armed,
+      secondArmed: secondState?.armed,
+      remainingDragClasses: boardElement.querySelectorAll('.is-drag-origin, .is-drag-option, .is-drag-target').length
+    };
+  });
+  if (directionHysteresis.firstTarget !== 25 || directionHysteresis.secondTarget !== 25 || !directionHysteresis.firstArmed || !directionHysteresis.secondArmed || directionHysteresis.remainingDragClasses) throw new Error(`Dragging past one third did not lock the selected neighbour: ${JSON.stringify(directionHysteresis)}`);
+  await assertMinimumFont(page, 'Desktop game');
+  if (await page.locator('#waveValue').innerText() !== '001') throw new Error('Wave one did not start');
+  if (await page.locator('#difficultyValue').innerText() !== '萌新') throw new Error('Selected difficulty was not applied');
+  const initialCheckpoint = await page.evaluate(() => JSON.parse(localStorage.getItem('runeRampart.progress.v1') || 'null'));
+  if (initialCheckpoint?.reason !== 'wave' || initialCheckpoint.wave !== 1 || initialCheckpoint.difficulty !== 'veteran') throw new Error(`Wave-start checkpoint was not saved: ${JSON.stringify(initialCheckpoint)}`);
+  if (await page.locator('#fullscreenButton').getAttribute('aria-label') !== '进入全屏') throw new Error('Fullscreen control is not ready');
+  if (await page.locator('#soundButton').evaluate((node) => node.classList.contains('is-muted'))) throw new Error('Sound should start enabled');
+  if (await page.locator('#musicButton').getAttribute('aria-pressed') !== 'true') throw new Error('MIDI music should start enabled');
+  if (!await page.evaluate(() => window.__runeRampartTest.musicState().playing)) throw new Error('MIDI music sequencer did not start with the battle');
+  if (await page.locator('[data-tooltip-key]').count() < 25) throw new Error('Too few game controls and status modules expose contextual hover tips');
+  await page.locator('.wall-status').hover();
+  await page.waitForTimeout(180);
+  const wallTooltip = await page.locator('#contextTooltip').evaluate((node) => {
+    const rect = node.getBoundingClientRect();
+    return {
+      visible: node.classList.contains('is-visible'),
+      ariaHidden: node.getAttribute('aria-hidden'),
+      text: node.textContent.replace(/\s+/g, ' ').trim(),
+      position: getComputedStyle(node).position,
+      rect: rect.toJSON(),
+      viewport: { width: window.innerWidth, height: window.innerHeight },
+      fontSizes: [...node.querySelectorAll('*')].map((child) => Number.parseFloat(getComputedStyle(child).fontSize))
+    };
+  });
+  if (!wallTooltip.visible || wallTooltip.ariaHidden !== 'false' || wallTooltip.position !== 'fixed' || !wallTooltip.text.includes('城墙 1120 / 1120') || !wallTooltip.text.includes('城防减伤 6%') || wallTooltip.rect.left < 0 || wallTooltip.rect.top < 0 || wallTooltip.rect.right > wallTooltip.viewport.width || wallTooltip.rect.bottom > wallTooltip.viewport.height || wallTooltip.fontSizes.some((size) => size < 14)) throw new Error(`Wall hover tip is incomplete or out of bounds: ${JSON.stringify(wallTooltip)}`);
+  await page.screenshot({ path: path.join(output, 'context-tooltip.png'), fullPage: false });
+  await page.locator('#pauseButton').focus();
+  await page.waitForTimeout(30);
+  const focusedTooltip = await page.locator('#contextTooltip').innerText();
+  if (!focusedTooltip.includes('立即暂停') || !focusedTooltip.includes('立即冻结敌军') || await page.locator('#pauseButton').getAttribute('aria-describedby') !== 'contextTooltip') throw new Error(`Keyboard-focused pause tooltip is incomplete: ${focusedTooltip}`);
+  if (await page.locator('#pauseButton').getAttribute('title') !== null || await page.locator('#soundButton').getAttribute('title') !== null || await page.locator('#fullscreenButton').getAttribute('title') !== null) throw new Error('Native titles can overlap the custom contextual tooltip');
+  await page.evaluate(() => document.activeElement?.blur());
+  await page.mouse.move(0, 0);
+  await page.locator('#leaderboardButton').click();
+  await page.locator('#leaderboardModal.is-open').waitFor({ state: 'visible', timeout: 500 });
+  await page.waitForTimeout(160);
+  const navbarLeaderboard = await page.evaluate(() => {
+    const save = JSON.parse(localStorage.getItem('runeRampart.progress.v1') || 'null');
+    return {
+      paused: window.__runeRampartTest.snapshot().paused,
+      musicPlaying: window.__runeRampartTest.musicState().playing,
+      saveReason: save?.reason,
+      boardParent: document.querySelector('#historyBoard').parentElement?.id,
+      filter: document.querySelector('[data-history-filter="all"]').getAttribute('aria-pressed'),
+      count: document.querySelector('#historyCount').textContent,
+      emptyText: document.querySelector('#historyRows').textContent.trim(),
+      focused: document.activeElement?.id
+    };
+  });
+  if (!navbarLeaderboard.paused || navbarLeaderboard.musicPlaying || navbarLeaderboard.saveReason !== 'pause' || navbarLeaderboard.boardParent !== 'leaderboardHistorySlot' || navbarLeaderboard.filter !== 'true' || navbarLeaderboard.count !== '0 条战报' || !navbarLeaderboard.emptyText.includes('还没有战报') || navbarLeaderboard.focused !== 'leaderboardClose') throw new Error(`Navbar leaderboard did not pause safely and show the default overall ranking: ${JSON.stringify(navbarLeaderboard)}`);
+  await assertMinimumFont(page, 'Navbar leaderboard');
+  await page.screenshot({ path: path.join(output, 'navbar-leaderboard.png'), fullPage: false });
+  await page.locator('#leaderboardClose').click();
+  const leaderboardClosed = await page.evaluate(() => ({
+    open: document.querySelector('#leaderboardModal').classList.contains('is-open'),
+    paused: window.__runeRampartTest.snapshot().paused,
+    musicPlaying: window.__runeRampartTest.musicState().playing,
+    focused: document.activeElement?.id
+  }));
+  if (leaderboardClosed.open || leaderboardClosed.paused || !leaderboardClosed.musicPlaying || leaderboardClosed.focused !== 'leaderboardButton') throw new Error(`Closing navbar leaderboard did not restore the battle: ${JSON.stringify(leaderboardClosed)}`);
+  const playlistCycle = await page.evaluate(() => {
+    const test = window.__runeRampartTest;
+    const before = test.musicState();
+    const visited = [];
+    for (let index = 0; index < before.trackCount; index += 1) visited.push(test.advanceMusicTrack().trackTitle);
+    const after = test.musicState();
+    return { before, visited, after, buttonTitle: document.querySelector('#musicButton').title, log: document.querySelector('#battleLog').innerText };
+  });
+  if (playlistCycle.before.trackCount < 20 || new Set(playlistCycle.visited).size !== playlistCycle.before.trackCount || playlistCycle.after.trackIndex !== playlistCycle.before.trackIndex || playlistCycle.after.trackTitle !== playlistCycle.before.trackTitle) throw new Error(`MIDI playlist does not cycle through at least 20 distinct tracks: ${JSON.stringify(playlistCycle)}`);
+  if (!playlistCycle.before.playlist.every((track) => (track.source.includes('公版') || track.source.includes('原创')) && track.steps >= 32 && track.voicesAligned && track.bpm >= 90) || !playlistCycle.buttonTitle.includes(playlistCycle.after.trackTitle) || !playlistCycle.log.includes('军乐换曲')) throw new Error(`MIDI playlist attribution, arrangement or feedback is incomplete: ${JSON.stringify(playlistCycle)}`);
+  const beforeManualSkip = await page.evaluate(() => window.__runeRampartTest.musicState());
+  await page.locator('#nextTrackButton').click();
+  await page.waitForTimeout(120);
+  const afterManualSkip = await page.evaluate(() => ({
+    music: window.__runeRampartTest.musicState(),
+    position: document.querySelector('#musicTrackCount').textContent,
+    currentTitle: document.querySelector('#musicCurrentTitle').textContent,
+    nextTitle: document.querySelector('#musicNextTitle').textContent,
+    label: document.querySelector('#nextTrackButton').getAttribute('aria-label'),
+    persisted: localStorage.getItem('runeRampart.musicTrack'),
+    paused: window.__runeRampartTest.snapshot().paused,
+    iconOnly: !document.querySelector('#nextTrackButton b') && document.querySelector('#nextTrackButton').textContent.trim() === '»'
+  }));
+  const expectedTrackIndex = (beforeManualSkip.trackIndex + 1) % beforeManualSkip.trackCount;
+  const expectedNextTitle = afterManualSkip.music.playlist[(expectedTrackIndex + 1) % beforeManualSkip.trackCount].title;
+  if (afterManualSkip.music.trackIndex !== expectedTrackIndex || !afterManualSkip.music.playing || afterManualSkip.position !== `第 ${expectedTrackIndex + 1} / ${beforeManualSkip.trackCount} 首` || afterManualSkip.currentTitle !== afterManualSkip.music.trackTitle || afterManualSkip.nextTitle !== expectedNextTitle || !afterManualSkip.label.includes(afterManualSkip.music.trackTitle) || !afterManualSkip.label.includes(expectedNextTitle) || afterManualSkip.persisted !== String(expectedTrackIndex) || afterManualSkip.paused || !afterManualSkip.iconOnly) throw new Error(`Non-blocking icon-only next-track control failed: ${JSON.stringify({ beforeManualSkip, afterManualSkip })}`);
+  await page.locator('#nextTrackButton').hover();
+  await page.waitForTimeout(180);
+  const musicTip = await page.locator('#musicHoverTip').evaluate((node) => ({
+    opacity: Number(getComputedStyle(node).opacity),
+    visible: getComputedStyle(node).visibility,
+    text: node.textContent.replace(/\s+/g, ' ').trim(),
+    fontSizes: [...node.querySelectorAll('*')].map((child) => Number.parseFloat(getComputedStyle(child).fontSize))
+  }));
+  if (musicTip.opacity < .99 || musicTip.visible !== 'visible' || !musicTip.text.includes(afterManualSkip.position) || !musicTip.text.includes(afterManualSkip.currentTitle) || !musicTip.text.includes(afterManualSkip.nextTitle) || musicTip.fontSizes.some((size) => size < 14)) throw new Error(`Music hover tip is incomplete or illegible: ${JSON.stringify(musicTip)}`);
+  await page.mouse.move(0, 0);
+  if (await page.locator('.forge-rule').count() !== 0) throw new Error('Detailed reinforcement rules still occupy the compact upgrade HUD');
+  await page.locator('#rulesButton').click();
+  await page.locator('#rulesModal.is-open').waitFor({ state: 'visible', timeout: 500 });
+  await page.waitForTimeout(180);
+  const rulesView = await page.evaluate(() => {
+    const modal = document.querySelector('#rulesModal');
+    const save = JSON.parse(localStorage.getItem('runeRampart.progress.v1') || 'null');
+    return {
+      sectionCount: modal.querySelectorAll('.rule-section').length,
+      text: modal.textContent.replace(/\s+/g, ' ').trim(),
+      paused: window.__runeRampartTest.snapshot().paused,
+      musicPlaying: window.__runeRampartTest.musicState().playing,
+      saveReason: save?.reason,
+      savePaused: save?.paused,
+      boardLocked: document.querySelector('#boardLock').classList.contains('is-visible'),
+      focused: document.activeElement?.id,
+      conciseBoardHint: document.querySelector('.board-hint').textContent.replace(/\s+/g, ' ').trim()
+    };
+  });
+  if (rulesView.sectionCount !== 6 || !rulesView.text.includes('四连额外 +1') || !rulesView.text.includes('五连及以上额外 +2') || !rulesView.text.includes('铸币组再额外 +1') || !rulesView.text.includes('按自身等级计算') || !rulesView.text.includes('每发弹丸消耗 1 次') || !rulesView.text.includes('大佬不会出现') || !rulesView.text.includes('立即冻结')) throw new Error(`Central rules dialog is incomplete: ${JSON.stringify(rulesView)}`);
+  if (!rulesView.paused || rulesView.musicPlaying || rulesView.saveReason !== 'pause' || !rulesView.savePaused || !rulesView.boardLocked || rulesView.focused !== 'rulesClose') throw new Error(`Opening rules did not pause and save safely: ${JSON.stringify(rulesView)}`);
+  if (rulesView.conciseBoardHint !== '操作：点击相邻符文，或拖到邻位后松开') throw new Error(`Board hint does not explain release-to-swap controls: ${rulesView.conciseBoardHint}`);
+  await assertMinimumFont(page, 'Rules dialog');
+  await page.screenshot({ path: path.join(output, 'rules.png'), fullPage: false });
+  await page.locator('#rulesClose').click();
+  await page.locator('#rulesModal').waitFor({ state: 'hidden', timeout: 500 });
+  const rulesClosed = await page.evaluate(() => ({
+    paused: window.__runeRampartTest.snapshot().paused,
+    musicPlaying: window.__runeRampartTest.musicState().playing,
+    focused: document.activeElement?.id
+  }));
+  if (rulesClosed.paused || !rulesClosed.musicPlaying || rulesClosed.focused !== 'rulesButton') throw new Error(`Closing rules did not restore the running battle: ${JSON.stringify(rulesClosed)}`);
+  const reinforcementRules = await page.evaluate(() => {
+    const reward = window.__runeRampartTest.reinforcementReward;
+    return {
+      normal: reward([{ type: 'ember', length: 3 }]),
+      four: reward([{ type: 'mana', length: 4 }]),
+      five: reward([{ type: 'moss', length: 5 }]),
+      coin: reward([{ type: 'coin', length: 3 }])
+    };
+  });
+  if (reinforcementRules.normal.total !== 1 || reinforcementRules.four.total !== 2 || reinforcementRules.five.total !== 3 || reinforcementRules.coin.total !== 2) throw new Error(`Reinforcement rules are inconsistent: ${JSON.stringify(reinforcementRules)}`);
+  await page.locator('#soundButton').click();
+  if (!await page.locator('#soundButton').evaluate((node) => node.classList.contains('is-muted'))) throw new Error('Sound mute toggle failed');
+  await page.locator('#soundButton').click();
+  await page.locator('#musicButton').click();
+  if (await page.locator('#musicButton').getAttribute('aria-pressed') !== 'false' || await page.evaluate(() => window.__runeRampartTest.musicState().playing)) throw new Error('MIDI music toggle did not stop playback');
+  if (await page.evaluate(() => localStorage.getItem('runeRampart.music')) !== 'false') throw new Error('MIDI music setting was not persisted');
+  await page.locator('#musicButton').click();
+  if (await page.locator('#musicButton').getAttribute('aria-pressed') !== 'true' || !await page.evaluate(() => window.__runeRampartTest.musicState().playing)) throw new Error('MIDI music toggle did not resume playback');
+  await page.screenshot({ path: path.join(output, 'desktop.png'), fullPage: true });
+
+  const beforeWeaponUpgrade = await page.evaluate(() => window.__runeRampartTest.snapshot());
+  await page.locator('[data-upgrade="weapon"]').click();
+  await page.evaluate(() => window.__runeRampartTest.grantForge());
+  await page.locator('.loadout-stat.is-upgraded').waitFor({ state: 'visible', timeout: 800 });
+  await page.locator('#equipmentUpgradeBanner.is-visible').waitFor({ state: 'visible', timeout: 800 });
+  const equipmentLevelTotal = await page.locator('#weaponLevel, #armorLevel, #charmLevel').evaluateAll(
+    (nodes) => nodes.reduce((total, node) => total + Number(node.textContent), 0)
+  );
+  if (equipmentLevelTotal !== 4 || await page.locator('#weaponLevel').innerText() !== '2') throw new Error(`Attack-priority upgrade did not apply: ${equipmentLevelTotal}`);
+  if (!await page.locator('#upgradeEquipmentLevel').innerText().then((text) => text.includes('消耗 26 补强'))) throw new Error('Upgrade banner does not explain reinforcement consumption');
+  const upgradedWeaponTarget = await page.evaluate(() => ({
+    snapshot: window.__runeRampartTest.snapshot(),
+    emberHud: document.querySelector('#emberValue').textContent,
+    banner: document.querySelector('#equipmentUpgradeBanner').innerText,
+    log: document.querySelector('#battleLog').innerText
+  }));
+  if (upgradedWeaponTarget.snapshot.upgradeTargetSlot !== 'weapon' || upgradedWeaponTarget.snapshot.forgeTarget <= 26 || upgradedWeaponTarget.snapshot.emberCapacity !== beforeWeaponUpgrade.emberCapacity + 4 || upgradedWeaponTarget.snapshot.emberCharges !== beforeWeaponUpgrade.emberCharges || !upgradedWeaponTarget.emberHud.endsWith(`/ ${upgradedWeaponTarget.snapshot.emberCapacity}`) || !upgradedWeaponTarget.banner.includes('余烬上限 +4') || !upgradedWeaponTarget.log.includes('余烬上限 +4') || !await page.locator('#forgeTargetName').innerText().then((text) => text.includes('攻击 LV.2→3'))) throw new Error(`Attack upgrade did not raise its own cost and ember capacity: ${JSON.stringify(upgradedWeaponTarget)}`);
+  await page.locator('[data-upgrade="armor"]').click();
+  const armorTarget = await page.evaluate(() => window.__runeRampartTest.snapshot());
+  if (armorTarget.upgradeTargetSlot !== 'armor' || armorTarget.forgeTarget !== 26 || !await page.locator('#forgeTargetName').innerText().then((text) => text.includes('防御 LV.1→2'))) throw new Error(`Switching priority did not reveal the defense-specific cost: ${JSON.stringify(armorTarget)}`);
+  await page.locator('[data-upgrade="auto"]').click();
+  const autoTarget = await page.evaluate(() => ({ snapshot: window.__runeRampartTest.snapshot(), hint: document.querySelector('#strategyHint').textContent }));
+  if (autoTarget.snapshot.upgradeTargetSlot !== 'armor' || autoTarget.snapshot.forgeTarget !== 26 || !autoTarget.hint.includes('本次防御')) throw new Error(`Auto mode did not internally choose and display its current target: ${JSON.stringify(autoTarget)}`);
+  const armorUpgrade = await page.evaluate(() => {
+    const test = window.__runeRampartTest;
+    const before = test.snapshot();
+    test.grantForge();
+    const after = test.snapshot();
+    return {
+      before,
+      after,
+      log: document.querySelector('#battleLog').innerText,
+      wallAnimating: document.querySelector('.wall-status').classList.contains('is-upgraded'),
+      armorAnimating: document.querySelector('#armorCard').classList.contains('is-upgraded'),
+      banner: document.querySelector('#equipmentUpgradeBanner').innerText
+    };
+  });
+  if (armorUpgrade.after.equipment.armor !== armorUpgrade.before.equipment.armor + 1 || armorUpgrade.after.wallMax !== armorUpgrade.before.wallMax + 90 || armorUpgrade.after.wall !== armorUpgrade.before.wall + 90 || armorUpgrade.after.shieldMax !== armorUpgrade.before.shieldMax + 45 || armorUpgrade.after.shield !== armorUpgrade.before.shield || !armorUpgrade.wallAnimating || !armorUpgrade.armorAnimating || !armorUpgrade.log.includes('耐久上限 +90') || !armorUpgrade.log.includes('护盾上限 +45') || !armorUpgrade.banner.includes('耐久上限 +90') || !armorUpgrade.banner.includes('护盾上限 +45')) throw new Error(`Defense upgrade did not visibly add wall and shield capacity: ${JSON.stringify(armorUpgrade)}`);
+  await page.locator('#armorCard').dispatchEvent('pointerover', { relatedTarget: null });
+  await page.waitForTimeout(80);
+  const armorTooltip = await page.locator('#contextTooltip').innerText();
+  if (!armorTooltip.includes('耐久上限 +90') || !armorTooltip.includes('护盾上限 +45') || !armorTooltip.includes('同步修复最多 90 点')) throw new Error(`Defense hover tip does not explain its durability and shield benefits: ${armorTooltip}`);
+  await page.locator('#armorCard').evaluate((node) => node.dispatchEvent(new PointerEvent('pointerout', { bubbles: true, relatedTarget: document.body })));
+  const speedUpgrade = await page.evaluate(() => {
+    const test = window.__runeRampartTest;
+    const before = test.snapshot();
+    test.grantForge();
+    const after = test.snapshot();
+    return {
+      before,
+      after,
+      manaHud: document.querySelector('#manaValue').textContent,
+      banner: document.querySelector('#equipmentUpgradeBanner').innerText,
+      log: document.querySelector('#battleLog').innerText
+    };
+  });
+  if (speedUpgrade.after.equipment.charm !== speedUpgrade.before.equipment.charm + 1 || speedUpgrade.after.manaCapacity !== speedUpgrade.before.manaCapacity + 9 || speedUpgrade.after.mana !== speedUpgrade.before.mana || !speedUpgrade.manaHud.endsWith(`/ ${speedUpgrade.after.manaCapacity}`) || !speedUpgrade.banner.includes('奥能上限 +9') || !speedUpgrade.log.includes('奥能上限 +9')) throw new Error(`Attack-speed upgrade did not visibly increase mana capacity: ${JSON.stringify(speedUpgrade)}`);
+  await page.locator('[data-upgrade="weapon"]').click();
+  if (!await page.locator('#rulesModal').textContent().then((text) => text.includes('等级越高费用越高') && text.includes('升级后再重选') && text.includes('余烬上限 +4') && text.includes('奥能上限 +9') && text.includes('耐久上限 +90') && text.includes('护盾上限 +45') && text.includes('固定整备 3 秒'))) throw new Error('Per-item upgrade and fixed intermission rules are missing from the central rules dialog');
+  const loadoutParent = await page.locator('#weaponCard').evaluate((node) => node.parentElement?.parentElement?.className);
+  if (!loadoutParent?.includes('compact-arsenal')) throw new Error('Full weapon values are not grouped below the upgrade console');
+  const weaponPower = (await page.locator('#weaponStat').innerText()).match(/\d+/)?.[0];
+  if (await page.locator('#hudAttack').innerText() !== weaponPower) throw new Error('Compact battlefield HUD did not sync the upgraded attack value');
+  if (!await page.locator('#weaponName').isVisible() || await page.locator('#weaponName').innerText() !== '余烬连弩') throw new Error('Equipment special name is not visible below the primary loadout value');
+  const battlefieldLayout = await page.evaluate(() => {
+    const field = document.querySelector('#battlefield').getBoundingClientRect();
+    const target = document.querySelector('#targetDossier').getBoundingClientRect();
+    const miniHud = document.querySelector('.field-hud').getBoundingClientRect();
+    const combatBuffs = document.querySelector('#combatBuffs').getBoundingClientRect();
+    const battleLog = document.querySelector('#battleLog').getBoundingClientRect();
+    const loadout = document.querySelector('.battle-loadout').getBoundingClientRect();
+    const upgradeConsole = document.querySelector('.upgrade-console').getBoundingClientRect();
+    const logBackground = getComputedStyle(document.querySelector('#battleLog p')).backgroundColor;
+    return {
+      targetRightGap: field.right - target.right,
+      targetTopGap: target.top - field.top,
+      targetAspect: target.width / target.height,
+      hudLeftGap: miniHud.left - field.left,
+      hudTopGap: miniHud.top - field.top,
+      buffLeftGap: combatBuffs.left - field.left,
+      buffTopGap: combatBuffs.top - field.top,
+      hudBottomGap: miniHud.bottom - field.top,
+      battleLogLeftGap: battleLog.left - field.left,
+      battleLogBottomGap: field.bottom - battleLog.bottom,
+      loadoutLeftGap: loadout.left - field.left,
+      loadoutGap: loadout.top - upgradeConsole.bottom,
+      loadoutHeight: loadout.height,
+      logBackground,
+      buffParent: document.querySelector('#combatBuffs').parentElement?.id
+    };
+  });
+  if (battlefieldLayout.targetRightGap > 20 || battlefieldLayout.targetTopGap > 20) throw new Error(`Threat dossier is not top-right: ${JSON.stringify(battlefieldLayout)}`);
+  if (battlefieldLayout.targetAspect < 3.5) throw new Error(`Threat dossier is not wide and shallow: ${JSON.stringify(battlefieldLayout)}`);
+  if (battlefieldLayout.hudLeftGap > 20 || battlefieldLayout.hudTopGap > 20) throw new Error(`Compact ally HUD is not top-left: ${JSON.stringify(battlefieldLayout)}`);
+  if (battlefieldLayout.buffLeftGap > 20 || battlefieldLayout.buffTopGap < battlefieldLayout.hudBottomGap) throw new Error(`Relic status is not placed below the top-left HUD: ${JSON.stringify(battlefieldLayout)}`);
+  if (battlefieldLayout.battleLogLeftGap > 20 || battlefieldLayout.battleLogBottomGap > 20) throw new Error(`Battle intel is not bottom-left: ${JSON.stringify(battlefieldLayout)}`);
+  if (battlefieldLayout.loadoutGap < -1 || battlefieldLayout.loadoutGap > 12 || battlefieldLayout.loadoutHeight > 52) throw new Error(`Full loadout is not compactly placed below the upgrade console: ${JSON.stringify(battlefieldLayout)}`);
+  if (!battlefieldLayout.logBackground.includes('0.48')) throw new Error(`Battle intel is not translucent enough: ${JSON.stringify(battlefieldLayout)}`);
+  if (battlefieldLayout.buffParent !== 'battlefield') throw new Error('Relic status is not anchored to the battlefield');
+  await page.waitForTimeout(180);
+  await page.screenshot({ path: path.join(output, 'equipment-upgrade.png'), fullPage: true });
+  await page.waitForTimeout(1900);
+
+  const burstResult = await page.evaluate(() => {
+    window.__runeRampartTest.setEquipment('charm', 4);
+    window.__runeRampartTest.setEmberCharges(2);
+    const before = document.querySelectorAll('.projectile').length;
+    const burst = window.__runeRampartTest.fireBurst();
+    const projectile = document.querySelectorAll('.projectile')[before];
+    const muzzle = document.querySelector('.muzzle-anchor').getBoundingClientRect();
+    const layer = document.querySelector('#projectilesLayer').getBoundingClientRect();
+    const scale = Number.parseFloat(document.querySelector('#gameViewport').dataset.scale) || 1;
+    const muzzlePoint = { x: (muzzle.left + muzzle.width / 2 - layer.left) / scale, y: (muzzle.top + muzzle.height / 2 - layer.top) / scale };
+    const projectilePoint = { x: Number.parseFloat(projectile.style.left), y: Number.parseFloat(projectile.style.top) };
+    return {
+      ...burst,
+      projectilesAdded: document.querySelectorAll('.projectile').length - before,
+      emberProjectiles: document.querySelectorAll('.projectile.is-ember-charged').length,
+      emberHud: document.querySelector('#emberValue').textContent,
+      emberCapacity: window.__runeRampartTest.snapshot().emberCapacity,
+      spendFeedback: document.querySelector('.legend-item.ember .resource-delta.spend')?.textContent,
+      muzzleError: Math.hypot(muzzlePoint.x - projectilePoint.x, muzzlePoint.y - projectilePoint.y)
+    };
+  });
+  if (burstResult.volleySize !== 2 || burstResult.projectilesAdded < 2) throw new Error(`Attack-speed multishot did not render: ${JSON.stringify(burstResult)}`);
+  if (!burstResult.emberCharged || burstResult.emberCharges !== 1 || burstResult.emberProjectiles < 2 || burstResult.emberHud !== `1 / ${burstResult.emberCapacity}` || burstResult.spendFeedback !== '-1') throw new Error(`Ember gain/consumption is not perceptible: ${JSON.stringify(burstResult)}`);
+  if (burstResult.muzzleError > 1) throw new Error(`Projectile does not originate at the cannon muzzle: ${JSON.stringify(burstResult)}`);
+  await page.screenshot({ path: path.join(output, 'multishot.png'), fullPage: false });
+
+  const directionBoard = await page.evaluate(() => window.__runeRampartTest.snapshot().board);
+  const directionCase = validSwapWithInvalidDecoy(directionBoard);
+  const rejectedDrag = await page.evaluate(({ origin, decoy }) => {
+    const boardElement = document.querySelector('#matchBoard');
+    const center = (index) => {
+      const rect = boardElement.querySelector(`[data-index="${index}"]`).getBoundingClientRect();
+      return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+    };
+    const start = center(origin);
+    const target = center(decoy);
+    const end = {
+      x: start.x + (target.x - start.x) * .36,
+      y: start.y + (target.y - start.y) * .36
+    };
+    const pointer = { bubbles: true, pointerId: 72, pointerType: 'mouse', isPrimary: true, button: 0 };
+    const boardBefore = window.__runeRampartTest.snapshot().board.join(',');
+    boardElement.querySelector(`[data-index="${origin}"]`).dispatchEvent(new PointerEvent('pointerdown', {
+      ...pointer,
+      clientX: start.x,
+      clientY: start.y
+    }));
+    boardElement.dispatchEvent(new PointerEvent('pointermove', { ...pointer, clientX: end.x, clientY: end.y }));
+    const targetTile = boardElement.querySelector(`[data-index="${decoy}"]`);
+    const targetBeforeRelease = {
+      className: targetTile.className,
+      dragX: targetTile.style.getPropertyValue('--drag-x'),
+      dragY: targetTile.style.getPropertyValue('--drag-y'),
+      transform: getComputedStyle(targetTile).transform
+    };
+    boardElement.dispatchEvent(new PointerEvent('pointerup', { ...pointer, clientX: end.x, clientY: end.y }));
+    return {
+      boardBefore,
+      snapshot: window.__runeRampartTest.snapshot(),
+      targetBeforeRelease,
+      returning: boardElement.querySelectorAll('.rune-tile.is-drag-returning').length,
+      committing: boardElement.querySelectorAll('.rune-tile.is-swap-committing').length
+    };
+  }, directionCase);
+  if (!rejectedDrag.snapshot.locked || rejectedDrag.snapshot.resolution?.phase !== 'reverting' || rejectedDrag.snapshot.board.join(',') !== rejectedDrag.boardBefore || rejectedDrag.returning !== 1 || rejectedDrag.committing || rejectedDrag.targetBeforeRelease.className.includes('is-drag') || rejectedDrag.targetBeforeRelease.dragX || rejectedDrag.targetBeforeRelease.dragY || rejectedDrag.targetBeforeRelease.transform !== 'none') throw new Error(`Rejected drag changes the target tile instead of returning only the held rune: ${JSON.stringify(rejectedDrag)}`);
+  await page.waitForFunction(() => !window.__runeRampartTest.snapshot().locked, null, { timeout: 1000 });
+  const rejectedDragSettled = await page.evaluate(() => ({
+    board: window.__runeRampartTest.snapshot().board.join(','),
+    transientClasses: document.querySelectorAll('.is-drag-origin, .is-drag-returning, .is-swap-committing, .invalid').length
+  }));
+  if (rejectedDragSettled.board !== rejectedDrag.boardBefore || rejectedDragSettled.transientClasses) throw new Error(`Rejected drag did not return cleanly without mutating the board: ${JSON.stringify(rejectedDragSettled)}`);
+  const reportedAsymmetricBoard = [
+    'ember', 'coin', 'mana', 'coin', 'mana', 'moss', 'ember',
+    'coin', 'coin', 'ember', 'moss', 'ember', 'coin', 'coin',
+    'ember', 'moss', 'mana', 'coin', 'coin', 'moss', 'mana',
+    'moss', 'moss', 'ember', 'mana', 'ember', 'coin', 'ember',
+    'ember', 'mana', 'mana', 'coin', 'mana', 'moss', 'mana',
+    'coin', 'ember', 'ember', 'coin', 'coin', 'mana', 'mana',
+    'mana', 'coin', 'ember', 'ember', 'mana', 'ember', 'ember'
+  ];
+  const boardBeforeReportedCase = await page.evaluate(() => window.__runeRampartTest.snapshot());
+  const exerciseReportedDrag = async (origin, target, pointerId) => page.evaluate(({ fixedBoard, origin, target, pointerId }) => {
+    window.__runeRampartTest.setBoard(fixedBoard);
+    const boardElement = document.querySelector('#matchBoard');
+    const center = (index) => {
+      const rect = boardElement.querySelector(`[data-index="${index}"]`).getBoundingClientRect();
+      return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+    };
+    const start = center(origin);
+    const destination = center(target);
+    const release = {
+      x: start.x + (destination.x - start.x) * .74,
+      y: start.y + (destination.y - start.y) * .74
+    };
+    const pointer = { bubbles: true, pointerId, pointerType: 'mouse', isPrimary: true, button: 0 };
+    boardElement.querySelector(`[data-index="${origin}"]`).dispatchEvent(new PointerEvent('pointerdown', {
+      ...pointer,
+      clientX: start.x,
+      clientY: start.y
+    }));
+    window.dispatchEvent(new PointerEvent('pointermove', { ...pointer, clientX: release.x, clientY: release.y }));
+    const beforeRelease = window.__runeRampartTest.dragState();
+    window.dispatchEvent(new PointerEvent('pointerup', { ...pointer, clientX: release.x, clientY: release.y }));
+    return { beforeRelease, afterRelease: window.__runeRampartTest.snapshot() };
+  }, { fixedBoard: reportedAsymmetricBoard, origin, target, pointerId });
+  const reportedDownDrag = await exerciseReportedDrag(24, 31, 74);
+  const reportedUpDrag = await exerciseReportedDrag(31, 24, 75);
+  const reportedDirectionWorked = (result, first, second) => result.beforeRelease?.lockedTargetIndex === second
+    && result.beforeRelease?.armed
+    && result.afterRelease.locked
+    && result.afterRelease.resolution?.phase === 'validate'
+    && result.afterRelease.resolution?.first === first
+    && result.afterRelease.resolution?.second === second;
+  if (!reportedDirectionWorked(reportedDownDrag, 24, 31) || !reportedDirectionWorked(reportedUpDrag, 31, 24)) throw new Error(`Reported vertical match is not accepted identically in both directions: ${JSON.stringify({ reportedDownDrag, reportedUpDrag })}`);
+  await page.evaluate(({ board, relics }) => window.__runeRampartTest.setBoard(board, relics), {
+    board: boardBeforeReportedCase.board,
+    relics: boardBeforeReportedCase.runeRelics
+  });
+  const finalPointerSwap = await page.evaluate(({ origin, target, decoy }) => {
+    const boardElement = document.querySelector('#matchBoard');
+    const tileCenter = (index) => {
+      const rect = boardElement.querySelector(`[data-index="${index}"]`).getBoundingClientRect();
+      return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+    };
+    const start = tileCenter(origin);
+    const decoyCenter = tileCenter(decoy);
+    const targetCenter = tileCenter(target);
+    const end = {
+      x: start.x + (targetCenter.x - start.x) * .36,
+      y: start.y + (targetCenter.y - start.y) * .36
+    };
+    const stale = {
+      x: start.x + (decoyCenter.x - start.x) * .18,
+      y: start.y + (decoyCenter.y - start.y) * .18
+    };
+    const pointer = { bubbles: true, pointerId: 73, pointerType: 'mouse', isPrimary: true, button: 0 };
+    boardElement.querySelector(`[data-index="${origin}"]`).dispatchEvent(new PointerEvent('pointerdown', {
+      ...pointer,
+      clientX: start.x,
+      clientY: start.y
+    }));
+    boardElement.dispatchEvent(new PointerEvent('pointermove', {
+      ...pointer,
+      clientX: stale.x,
+      clientY: stale.y
+    }));
+    boardElement.dispatchEvent(new PointerEvent('pointerup', {
+      ...pointer,
+      clientX: end.x,
+      clientY: end.y
+    }));
+    return window.__runeRampartTest.snapshot();
+  }, directionCase);
+  if (!finalPointerSwap.locked || finalPointerSwap.resolution?.phase !== 'validate' || finalPointerSwap.resolution.first !== directionCase.origin || finalPointerSwap.resolution.second !== directionCase.target) {
+    throw new Error(`Pointer release used a stale drag direction or rebounded a valid final swap: ${JSON.stringify({ directionCase, finalPointerSwap })}`);
+  }
+  await page.waitForFunction(() => !window.__runeRampartTest.snapshot().locked, null, { timeout: 5000 });
+
+  const beforeScore = Number(await page.locator('#scoreValue').innerText());
+  const classes = await page.locator('.rune-tile').evaluateAll((nodes) => nodes.map((node) => node.className));
+  const board = classes.map((value) => ['ember', 'mana', 'moss', 'coin'].find((kind) => value.includes(kind)));
+  const [first, second] = validSwap(board);
+  const swapSymmetry = await page.evaluate(({ first, second }) => ({
+    forward: window.__runeRampartTest.matchesAfterSwap(first, second),
+    reverse: window.__runeRampartTest.matchesAfterSwap(second, first)
+  }), { first, second });
+  if (!swapSymmetry.forward.length || swapSymmetry.forward.join(',') !== swapSymmetry.reverse.join(',')) throw new Error(`Match-producing swap is not directionally symmetric: ${JSON.stringify({ first, second, swapSymmetry })}`);
+  const bidirectionalDrag = await page.evaluate(({ first, second }) => {
+    const boardElement = document.querySelector('#matchBoard');
+    const center = (index) => {
+      const rect = boardElement.querySelector(`[data-index="${index}"]`).getBoundingClientRect();
+      return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+    };
+    const inspect = (origin, target, pointerId) => {
+      const start = center(origin);
+      const end = center(target);
+      const pointer = { bubbles: true, pointerId, pointerType: 'mouse', isPrimary: true, button: 0 };
+      boardElement.querySelector(`[data-index="${origin}"]`).dispatchEvent(new PointerEvent('pointerdown', {
+        ...pointer,
+        clientX: start.x,
+        clientY: start.y
+      }));
+      boardElement.dispatchEvent(new PointerEvent('pointermove', {
+        ...pointer,
+        clientX: end.x,
+        clientY: end.y
+      }));
+      const result = {
+        target: window.__runeRampartTest.dragState()?.targetIndex,
+        armed: window.__runeRampartTest.dragState()?.armed
+      };
+      boardElement.dispatchEvent(new PointerEvent('pointercancel', pointer));
+      return result;
+    };
+    return {
+      forward: inspect(first, second, 62),
+      reverse: inspect(second, first, 63)
+    };
+  }, { first, second });
+  if (bidirectionalDrag.forward.target !== second || bidirectionalDrag.reverse.target !== first || !bidirectionalDrag.forward.armed || !bidirectionalDrag.reverse.armed) throw new Error(`The same valid pair is not recognized in both drag directions: ${JSON.stringify({ first, second, bidirectionalDrag })}`);
+  const swappedBoard = [...board];
+  [swappedBoard[first], swappedBoard[second]] = [swappedBoard[second], swappedBoard[first]];
+  const futureMatches = [...matched(swappedBoard)];
+  const expectedFirstDrop = expectedDropPlan(futureMatches);
+  if (!expectedFirstDrop.size || expectedFirstDrop.size >= 49) throw new Error(`Drop-animation test did not produce a localized collapse: ${JSON.stringify({ futureMatches, expectedFirstDrop: [...expectedFirstDrop] })}`);
+  const relicIndex = futureMatches.find((index) => index !== first && index !== second)
+    ?? (futureMatches[0] === first ? second : futureMatches[0] === second ? first : futureMatches[0]);
+  await page.evaluate(({ relicIndex }) => {
+    window.__runeRampartTest.clearRelics();
+    window.__runeRampartTest.clearRuneRelics();
+    window.__runeRampartTest.setRuneRelic(relicIndex, 'frost');
+  }, { relicIndex });
+  if (await page.locator('.rune-relic-mark').count() !== 1) throw new Error('Forced rune Easter egg marker did not render');
+  const beforeMatchResources = await page.evaluate(() => window.__runeRampartTest.snapshot());
+  const firstBox = await page.locator('.rune-tile').nth(first).boundingBox();
+  const secondBox = await page.locator('.rune-tile').nth(second).boundingBox();
+  if (!firstBox || !secondBox) throw new Error('Valid drag-swap tiles are not visible');
+  const dragStart = { x: firstBox.x + firstBox.width / 2, y: firstBox.y + firstBox.height / 2 };
+  const dragEnd = { x: secondBox.x + secondBox.width / 2, y: secondBox.y + secondBox.height / 2 };
+  await page.mouse.move(dragStart.x, dragStart.y);
+  await page.mouse.down();
+  await page.mouse.move(
+    dragStart.x + (dragEnd.x - dragStart.x) * .18,
+    dragStart.y + (dragEnd.y - dragStart.y) * .18,
+    { steps: 2 }
+  );
+  const dragPreview = await page.evaluate(() => {
+    const origin = document.querySelector('.rune-tile.is-drag-origin');
+    const targetIndex = window.__runeRampartTest.dragState()?.targetIndex;
+    const target = targetIndex === undefined ? null : document.querySelector(`[data-index="${targetIndex}"]`);
+    return {
+      boardDragging: document.querySelector('#matchBoard').classList.contains('is-rune-dragging'),
+      boardArmed: document.querySelector('#matchBoard').classList.contains('is-drag-armed'),
+      originCount: document.querySelectorAll('.rune-tile.is-drag-origin').length,
+      optionCount: document.querySelectorAll('.rune-tile.is-drag-option').length,
+      targetCount: document.querySelectorAll('.rune-tile.is-drag-target').length,
+      targetUntouched: Boolean(target) && !target.className.includes('is-drag')
+        && !target.style.getPropertyValue('--drag-x') && !target.style.getPropertyValue('--drag-y'),
+      dragX: origin?.style.getPropertyValue('--drag-x'),
+      dragY: origin?.style.getPropertyValue('--drag-y'),
+      cursor: origin ? getComputedStyle(origin).cursor : ''
+    };
+  });
+  if (!dragPreview.boardDragging || dragPreview.boardArmed || dragPreview.originCount !== 1 || dragPreview.optionCount || dragPreview.targetCount || !dragPreview.targetUntouched || (!Number.parseFloat(dragPreview.dragX) && !Number.parseFloat(dragPreview.dragY)) || dragPreview.cursor !== 'grabbing') throw new Error(`Drag preview changes something other than the held rune: ${JSON.stringify(dragPreview)}`);
+  await page.screenshot({ path: path.join(output, 'drag-preview.png'), fullPage: false });
+  await page.mouse.move(
+    dragStart.x + (dragEnd.x - dragStart.x) * .62,
+    dragStart.y + (dragEnd.y - dragStart.y) * .62,
+    { steps: 2 }
+  );
+  const responsiveDrag = await page.evaluate(() => {
+    const origin = document.querySelector('.rune-tile.is-drag-origin');
+    const targetIndex = window.__runeRampartTest.dragState()?.targetIndex;
+    const target = targetIndex === undefined ? null : document.querySelector(`[data-index="${targetIndex}"]`);
+    const dragX = Number.parseFloat(origin?.style.getPropertyValue('--drag-x')) || 0;
+    const dragY = Number.parseFloat(origin?.style.getPropertyValue('--drag-y')) || 0;
+    const exchangeX = target && origin ? target.offsetLeft - origin.offsetLeft : 0;
+    const exchangeY = target && origin ? target.offsetTop - origin.offsetTop : 0;
+    return {
+      progress: Math.hypot(dragX, dragY) / Math.max(1, Math.hypot(exchangeX, exchangeY)),
+      armed: document.querySelector('#matchBoard').classList.contains('is-drag-armed'),
+      targetUntouched: Boolean(target) && !target.className.includes('is-drag')
+        && !target.style.getPropertyValue('--drag-x') && !target.style.getPropertyValue('--drag-y'),
+      transitionProperty: origin ? getComputedStyle(origin).transitionProperty : ''
+    };
+  });
+  if (responsiveDrag.progress < .56 || responsiveDrag.progress > .68 || !responsiveDrag.armed || !responsiveDrag.targetUntouched || responsiveDrag.transitionProperty.split(',').map((value) => value.trim()).includes('transform')) throw new Error(`Dragged rune does not track the pointer without disturbing its target: ${JSON.stringify(responsiveDrag)}`);
+  await page.mouse.move(dragEnd.x, dragEnd.y, { steps: 5 });
+  const beforeRelease = await page.evaluate(() => ({
+    board: window.__runeRampartTest.snapshot().board.join(','),
+    locked: window.__runeRampartTest.snapshot().locked,
+    armed: document.querySelector('#matchBoard').classList.contains('is-drag-armed'),
+    changedNonOriginTiles: document.querySelectorAll('.rune-tile.is-drag-option, .rune-tile.is-drag-target, .rune-tile.is-drag-armed').length
+  }));
+  if (beforeRelease.board !== beforeMatchResources.board.join(',') || beforeRelease.locked || !beforeRelease.armed || beforeRelease.changedNonOriginTiles) throw new Error(`Drag preview mutates or visually changes a non-origin tile before release: ${JSON.stringify(beforeRelease)}`);
+  await page.mouse.up();
+  await page.waitForTimeout(55);
+  const swapAnimation = await page.evaluate(() => ({
+    board: window.__runeRampartTest.snapshot().board.join(','),
+    locked: window.__runeRampartTest.snapshot().locked,
+    resolution: window.__runeRampartTest.snapshot().resolution,
+    committing: [...document.querySelectorAll('.rune-tile.is-swap-committing')].map((tile) => getComputedStyle(tile).transform),
+    dragging: document.querySelector('#matchBoard').classList.contains('is-rune-dragging')
+  }));
+  if (swapAnimation.board !== beforeMatchResources.board.join(',') || !swapAnimation.locked || swapAnimation.resolution?.phase !== 'validate' || swapAnimation.committing.length !== 2 || swapAnimation.committing.some((transform) => transform === 'none') || swapAnimation.dragging) throw new Error(`Release-to-swap animation is missing or mutates too early: ${JSON.stringify(swapAnimation)}`);
+  await page.evaluate(() => {
+    const deadline = performance.now() + 850;
+    window.__pauseAtPrime = new Promise((resolve, reject) => {
+      const pauseDuringPrime = () => {
+        if (window.__runeRampartTest.snapshot().resolution?.phase === 'primed') {
+          document.querySelector('#pauseButton').click();
+          resolve();
+          return;
+        }
+        if (performance.now() >= deadline) {
+          reject(new Error('Primed phase was not observed before its deadline'));
+          return;
+        }
+        requestAnimationFrame(pauseDuringPrime);
+      };
+      pauseDuringPrime();
+    });
+  });
+  await page.screenshot({ path: path.join(output, 'swap-animation.png'), fullPage: false });
+  await page.evaluate(() => window.__pauseAtPrime);
+  const frozenChain = await page.evaluate(() => ({
+    snapshot: window.__runeRampartTest.snapshot(),
+    save: JSON.parse(localStorage.getItem('runeRampart.progress.v1') || 'null'),
+    animationState: getComputedStyle(document.querySelector('.match-primed')).animationPlayState,
+    shellPaused: document.querySelector('#gameShell').classList.contains('is-paused'),
+    lockText: document.querySelector('#boardLock').textContent
+  }));
+  if (!frozenChain.snapshot.paused || !frozenChain.snapshot.locked || frozenChain.snapshot.resolution?.kind !== 'resolve' || frozenChain.save?.reason !== 'pause' || frozenChain.save?.resolution?.kind !== 'resolve' || frozenChain.animationState !== 'paused' || !frozenChain.shellPaused || !frozenChain.lockText.includes('已保存')) {
+    throw new Error(`In-flight cascade did not pause and save immediately: ${JSON.stringify(frozenChain)}`);
+  }
+  await page.waitForTimeout(900);
+  const stillFrozenChain = await page.evaluate(() => ({
+    snapshot: window.__runeRampartTest.snapshot(),
+    primed: document.querySelectorAll('.match-primed').length,
+    dropping: document.querySelectorAll('.is-dropping').length
+  }));
+  if (stillFrozenChain.snapshot.score !== frozenChain.snapshot.score || stillFrozenChain.snapshot.forge !== frozenChain.snapshot.forge || stillFrozenChain.snapshot.board.join(',') !== frozenChain.snapshot.board.join(',') || stillFrozenChain.snapshot.resolution?.phase !== frozenChain.snapshot.resolution?.phase || !stillFrozenChain.primed || stillFrozenChain.dropping) {
+    throw new Error(`Paused cascade continued in the background: ${JSON.stringify({ frozenChain, stillFrozenChain })}`);
+  }
+  await page.screenshot({ path: path.join(output, 'animation-paused.png'), fullPage: false });
+  await page.locator('#pauseButton').click();
+  await page.evaluate(() => new Promise((resolve, reject) => {
+    const deadline = performance.now() + 900;
+    const pauseDuringBurst = () => {
+      if (window.__runeRampartTest.snapshot().resolution?.phase === 'burst') {
+        document.querySelector('#pauseButton').click();
+        resolve();
+        return;
+      }
+      if (performance.now() >= deadline) {
+        reject(new Error('Burst phase was not observed before its deadline'));
+        return;
+      }
+      requestAnimationFrame(pauseDuringBurst);
+    };
+    pauseDuringBurst();
+  }));
+  await page.screenshot({ path: path.join(output, 'animation-burst.png'), fullPage: false });
+  await page.locator('#pauseButton').click();
+  await page.locator('.is-dropping').first().waitFor({ state: 'attached', timeout: 900 });
+  const reinforcementFeedback = await page.evaluate(() => ({
+    snapshot: window.__runeRampartTest.snapshot(),
+    delta: document.querySelector('.legend-item.coin .resource-delta.gain')?.textContent,
+    dropping: [...document.querySelectorAll('.rune-tile.is-dropping')].map((node) => ({
+      index: Number(node.dataset.index),
+      rows: Number(node.dataset.dropRows),
+      animationName: getComputedStyle(node).animationName
+    }))
+  }));
+  if (!(reinforcementFeedback.snapshot.forge > beforeMatchResources.forge) || !reinforcementFeedback.delta?.startsWith('+')) throw new Error(`Every match does not visibly advance reinforcement: ${JSON.stringify(reinforcementFeedback)}`);
+  const actualDropPlan = new Map(reinforcementFeedback.dropping.map(({ index, rows }) => [index, rows]));
+  if (actualDropPlan.size !== expectedFirstDrop.size || [...expectedFirstDrop].some(([index, rows]) => actualDropPlan.get(index) !== rows) || reinforcementFeedback.dropping.some(({ rows, animationName }) => rows < 1 || animationName !== 'tile-drop')) throw new Error(`Only tiles above cleared cells should animate and fall by their actual distance: ${JSON.stringify({ expected: [...expectedFirstDrop], actual: reinforcementFeedback.dropping })}`);
+  await page.screenshot({ path: path.join(output, 'animation-drop.png'), fullPage: false });
+  await page.waitForTimeout(700);
+  const afterScore = Number(await page.locator('#scoreValue').innerText());
+  if (!(afterScore > beforeScore)) throw new Error(`Match did not score: ${beforeScore} -> ${afterScore}`);
+  const boardRelicResult = await page.evaluate(() => window.__runeRampartTest.snapshot());
+  const boardRelicTypes = [boardRelicResult.combatBuff?.type, ...boardRelicResult.combatBuffQueue.map((buff) => buff.type)];
+  if (!boardRelicTypes.includes('frost')) throw new Error(`Matched rune Easter egg did not enter the effect queue: ${JSON.stringify(boardRelicResult)}`);
+  await page.evaluate(() => {
+    window.__runeRampartTest.clearRelics();
+    window.__runeRampartTest.grantRelic('frost');
+    window.__runeRampartTest.grantRelic('shatter');
+    window.__runeRampartTest.grantRelic('blast');
+  });
+  const queuedRelics = await page.evaluate(() => window.__runeRampartTest.snapshot());
+  if (queuedRelics.combatBuff?.type !== 'frost' || queuedRelics.combatBuffQueue.length !== 2) throw new Error(`Relic effects did not queue: ${JSON.stringify(queuedRelics)}`);
+  if (await page.locator('.combat-buff em').innerText() !== '候命 2') throw new Error('Relic queue count is not displayed in the effect frame');
+  if (Number(await page.locator('.combat-buff').evaluate((node) => getComputedStyle(node).opacity)) < .99) throw new Error('Relic effect frame is not fully visible');
+  await page.screenshot({ path: path.join(output, 'relic-queue.png'), fullPage: false });
+  await page.evaluate(() => {
+    window.__runeRampartTest.setEquipment('charm', 1);
+    window.__runeRampartTest.setRelicShots(1);
+    window.__runeRampartTest.fireBurst();
+  });
+  await page.waitForTimeout(650);
+  const advancedRelics = await page.evaluate(() => window.__runeRampartTest.snapshot());
+  if (advancedRelics.combatBuff?.type !== 'shatter' || advancedRelics.combatBuffQueue.length !== 1) throw new Error(`Relic queue did not advance after effect exhaustion: ${JSON.stringify(advancedRelics)}`);
+  await page.evaluate(() => window.__runeRampartTest.clearRelics());
+  const manaSpend = await page.evaluate(() => {
+    window.__runeRampartTest.grantMana(18);
+    return window.__runeRampartTest.snapshot().mana;
+  });
+  await page.locator('#volleyButton').click();
+  await page.locator('.arcane-wave').waitFor({ state: 'attached', timeout: 500 });
+  const manaAfterVolley = await page.evaluate(() => ({
+    mana: window.__runeRampartTest.snapshot().mana,
+    feedback: document.querySelector('.legend-item.mana .resource-delta.spend')?.textContent
+  }));
+  if (manaAfterVolley.mana !== manaSpend - 18 || manaAfterVolley.feedback !== '-18') throw new Error(`Mana consumption is not perceptible: ${JSON.stringify({ manaSpend, manaAfterVolley })}`);
+
+  await page.locator('#pauseButton').click();
+  const offstageTargeting = await page.evaluate(() => {
+    const test = window.__runeRampartTest;
+    test.clearEnemies();
+    const spawned = test.spawnEnemy('swift');
+    return {
+      spawned,
+      dossierEmpty: document.querySelector('#targetDossier').classList.contains('is-empty'),
+      targetName: document.querySelector('#targetName').textContent,
+      targetRole: document.querySelector('#targetRole').textContent
+    };
+  });
+  if (!offstageTargeting.spawned || offstageTargeting.spawned.entered || offstageTargeting.spawned.x <= 98 || !offstageTargeting.dossierEmpty || !offstageTargeting.targetRole.includes('无法锁定')) throw new Error(`Off-stage enemy can be locked before entering the field: ${JSON.stringify(offstageTargeting)}`);
+  const enteredTargeting = await page.evaluate(() => {
+    const entered = window.__runeRampartTest.enterAllEnemies();
+    return {
+      entered,
+      dossierEmpty: document.querySelector('#targetDossier').classList.contains('is-empty'),
+      targetName: document.querySelector('#targetName').textContent,
+      targetAttack: document.querySelector('#targetAttack').textContent
+    };
+  });
+  if (!enteredTargeting.entered.every((enemy) => enemy.entered && enemy.x <= 98) || enteredTargeting.dossierEmpty || enteredTargeting.targetName !== offstageTargeting.spawned.name || Number(enteredTargeting.targetAttack) <= 0 || await page.locator('.target-stats > div:first-child span').innerText() !== '伤害') throw new Error(`Enemy was not acquired with a clear damage value after entering the field: ${JSON.stringify(enteredTargeting)}`);
+  const shieldFlow = await page.evaluate(() => {
+    const test = window.__runeRampartTest;
+    const baseline = test.snapshot();
+    test.setDefenseState(baseline.wallMax - 20, 0);
+    const support = test.grantMossSupport(50);
+    const snapshot = test.snapshot();
+    return {
+      support,
+      snapshot,
+      legend: document.querySelector('#energyValue').textContent,
+      rail: document.querySelector('#shieldRailValue').textContent,
+      meterWidth: Number.parseFloat(document.querySelector('#shieldMeter').style.width),
+      log: document.querySelector('#battleLog').innerText,
+      ruleText: document.querySelector('#rulesModal').textContent
+    };
+  });
+  if (shieldFlow.support.restored !== 20 || shieldFlow.support.shieldGained !== 30 || shieldFlow.support.energyAccepted !== 50 || shieldFlow.support.energyCapacity !== shieldFlow.snapshot.shieldMax || shieldFlow.snapshot.wall !== shieldFlow.snapshot.wallMax || shieldFlow.snapshot.shield !== 30 || shieldFlow.legend !== `30 / ${shieldFlow.snapshot.shieldMax}` || shieldFlow.rail !== '30' || !(shieldFlow.meterWidth > 0) || !shieldFlow.log.includes('防御能量分配：耐久 +20 · 护盾 +30') || !shieldFlow.ruleText.includes('绿晶提供防御能量') || !shieldFlow.ruleText.includes('剩余部分转化为护盾') || !shieldFlow.ruleText.includes('再消耗护盾')) throw new Error(`Green rune energy was not visibly split between repair and shield: ${JSON.stringify(shieldFlow)}`);
+  await page.locator('.legend-item.moss').hover();
+  await page.waitForTimeout(80);
+  const energyTooltip = await page.locator('#contextTooltip').innerText();
+  if (!energyTooltip.includes(`防御能量 30 / ${shieldFlow.snapshot.shieldMax}`) || !energyTooltip.includes('先用于修复缺失耐久') || !energyTooltip.includes('剩余能量转化为护盾') || !energyTooltip.includes('受到伤害时先扣护盾')) throw new Error(`Energy hover tip is incomplete: ${energyTooltip}`);
+  await page.mouse.move(0, 0);
+  const selfDestruct = await page.evaluate(() => {
+    const test = window.__runeRampartTest;
+    test.clearEnemies();
+    document.querySelectorAll('.combat-toast.damage, .combat-toast.shield').forEach((toast) => toast.remove());
+    test.setEquipment('armor', 3);
+    const result = test.breachEnemy('assault');
+    const damageToasts = [...document.querySelectorAll('.combat-toast.damage')];
+    const shieldToasts = [...document.querySelectorAll('.combat-toast.shield')];
+    const feedback = {
+      damageToast: damageToasts.at(-1)?.textContent || '',
+      shieldToast: shieldToasts.at(-1)?.textContent || '',
+      log: document.querySelector('#battleLog').innerText,
+      impactAttached: Boolean(document.querySelector('.impact-flash.self-destruct')),
+      enemyAnimating: Boolean(document.querySelector('.enemy.is-self-destructing')),
+      wallText: document.querySelector('#wallValue').textContent,
+      shieldText: document.querySelector('#energyValue').textContent.split('/')[0].trim(),
+      ruleText: document.querySelector('#rulesModal').textContent
+    };
+    test.setEquipment('armor', 1);
+    return { result, feedback };
+  });
+  if (!selfDestruct.result || selfDestruct.result.actualShieldAbsorb !== selfDestruct.result.expectedShieldAbsorb || selfDestruct.result.actualWallDamage !== selfDestruct.result.expectedWallDamage || selfDestruct.result.wallAfter !== selfDestruct.result.wallBefore - selfDestruct.result.expectedWallDamage || selfDestruct.result.shieldAfter !== selfDestruct.result.shieldBefore - selfDestruct.result.expectedShieldAbsorb || !selfDestruct.result.removedFromBattle || !selfDestruct.result.selfDestructing) throw new Error(`Enemy shield-first self-destruct damage is incorrect: ${JSON.stringify(selfDestruct)}`);
+  const expectedWallToast = selfDestruct.result.expectedWallDamage ? `耐久 -${selfDestruct.result.expectedWallDamage}` : '';
+  if (!selfDestruct.feedback.impactAttached || !selfDestruct.feedback.enemyAnimating || selfDestruct.feedback.shieldToast !== `护盾 -${selfDestruct.result.expectedShieldAbsorb}` || selfDestruct.feedback.damageToast !== expectedWallToast || !selfDestruct.feedback.log.includes(`护盾吸收 ${selfDestruct.result.expectedShieldAbsorb}`) || Number(selfDestruct.feedback.wallText) !== selfDestruct.result.wallAfter || Number(selfDestruct.feedback.shieldText) !== selfDestruct.result.shieldAfter || !selfDestruct.feedback.ruleText.includes('先应用城防减伤，再消耗护盾，最后才扣耐久')) throw new Error(`Enemy self-destruct feedback or rule explanation is incomplete: ${JSON.stringify(selfDestruct)}`);
+  await page.locator('#pauseButton').click();
+  await page.waitForTimeout(160);
+  const selfDestructVisual = await page.evaluate(() => {
+    const impact = document.querySelector('.impact-flash.self-destruct');
+    const enemy = document.querySelector('.enemy.is-self-destructing');
+    return {
+      impactOpacity: impact ? Number(getComputedStyle(impact).opacity) : 0,
+      impactSize: impact ? impact.getBoundingClientRect().width : 0,
+      enemyOpacity: enemy ? Number(getComputedStyle(enemy).opacity) : 0,
+      fortressBreached: document.querySelector('#fortress').classList.contains('is-breached'),
+      fortressShielded: document.querySelector('#fortress').classList.contains('is-shielded'),
+      shieldToastVisible: [...document.querySelectorAll('.combat-toast.shield')].some((node) => node.textContent.startsWith('护盾 -') && Number(getComputedStyle(node).opacity) > 0),
+      damageToastVisible: [...document.querySelectorAll('.combat-toast.damage')].some((node) => node.textContent.startsWith('耐久 -') && Number(getComputedStyle(node).opacity) > 0)
+    };
+  });
+  const expectedFortressFeedback = selfDestruct.result.expectedWallDamage
+    ? selfDestructVisual.fortressBreached
+    : selfDestructVisual.fortressShielded;
+  if (selfDestructVisual.impactOpacity < .5 || selfDestructVisual.impactSize < 20 || selfDestructVisual.enemyOpacity < .3 || !expectedFortressFeedback || !selfDestructVisual.shieldToastVisible || selfDestructVisual.damageToastVisible !== Boolean(selfDestruct.result.expectedWallDamage)) throw new Error(`Enemy self-destruct animation is not perceptible: ${JSON.stringify(selfDestructVisual)}`);
+  await page.screenshot({ path: path.join(output, 'enemy-self-destruct.png'), fullPage: false });
+
+  await page.waitForTimeout(1500);
+  if (await page.locator('.enemy').count() < 1) await page.evaluate(() => window.__runeRampartTest.spawnEnemy('assault'));
+  if (await page.locator('.enemy').count() < 1) throw new Error('No enemy spawned');
+  await page.evaluate(() => {
+    window.__runeRampartTest.spawnEnemy('swift');
+    window.__runeRampartTest.spawnEnemy('assault');
+    window.__runeRampartTest.spawnEnemy('brute');
+    window.__runeRampartTest.spawnEnemy('boss');
+    window.__runeRampartTest.enterAllEnemies();
+  });
+  for (const type of ['swift', 'assault', 'brute', 'boss']) {
+    if (await page.locator(`.enemy.${type}`).count() < 1) throw new Error(`Distinct ${type} enemy did not render`);
+  }
+  if (await page.locator('#targetDossier').evaluate((node) => node.classList.contains('is-empty'))) throw new Error('Target dossier did not acquire an enemy');
+  if (Number(await page.locator('#targetAttack').innerText()) <= 0) throw new Error('Enemy breach damage is not displayed');
+  if (Number(await page.locator('#targetDefense').innerText()) < 0) throw new Error('Enemy defense is not displayed');
+  if ((await page.locator('.enemy-label').first().innerText()).length < 3) throw new Error('Enemy name is missing');
+  const aimAngle = await page.locator('#fortress').evaluate((node) => node.style.getPropertyValue('--aim-angle'));
+  if (!aimAngle.includes('rad')) throw new Error('Turret did not aim at its target');
+  await page.evaluate(() => {
+    window.__runeRampartTest.clearRelics();
+    window.__runeRampartTest.grantRelic('blast');
+  });
+  await page.locator('.combat-buff.blast').waitFor({ state: 'visible', timeout: 500 });
+  await page.locator('.impact-flash.blast').first().waitFor({ state: 'attached', timeout: 1800 });
+  await page.screenshot({ path: path.join(output, 'enemy-dossier.png'), fullPage: false });
+  await page.locator('#pauseButton').click();
+  if (!await page.locator('#boardLock').evaluate((node) => node.classList.contains('is-visible'))) throw new Error('Pause lock is not visible');
+  const pauseOverlay = await page.evaluate(() => {
+    const overlay = document.querySelector('#boardLock');
+    const button = document.querySelector('#boardResumeButton');
+    const combo = document.querySelector('#cascadeCallout');
+    const comboWasVisible = combo.classList.contains('is-visible');
+    combo.classList.add('is-visible');
+    const rect = button.getBoundingClientRect();
+    const topElement = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
+    const result = {
+      ariaHidden: overlay.getAttribute('aria-hidden'),
+      buttonDisabled: button.disabled,
+      buttonText: button.textContent.replace(/\s+/g, ' ').trim(),
+      focused: document.activeElement?.id,
+      width: rect.width,
+      height: rect.height,
+      overlayZIndex: Number.parseInt(getComputedStyle(overlay).zIndex, 10),
+      comboZIndex: Number.parseInt(getComputedStyle(combo).zIndex, 10),
+      resumeOwnsCenter: topElement === button || button.contains(topElement)
+    };
+    if (!comboWasVisible) combo.classList.remove('is-visible');
+    return result;
+  });
+  if (pauseOverlay.ariaHidden !== 'false' || pauseOverlay.buttonDisabled || !pauseOverlay.buttonText.includes('恢复游戏') || !pauseOverlay.buttonText.includes('当前结算进度') || pauseOverlay.focused !== 'boardResumeButton' || pauseOverlay.width < 200 || pauseOverlay.height < 56 || pauseOverlay.overlayZIndex <= pauseOverlay.comboZIndex || !pauseOverlay.resumeOwnsCenter) throw new Error(`Pause overlay does not expose an unobstructed, prominent, focused resume action: ${JSON.stringify(pauseOverlay)}`);
+  await page.screenshot({ path: path.join(output, 'pause-resume-button.png'), fullPage: false });
+  await page.locator('#boardResumeButton').click();
+  const resumedFromOverlay = await page.evaluate(() => ({
+    paused: window.__runeRampartTest.snapshot().paused,
+    overlayVisible: document.querySelector('#boardLock').classList.contains('is-visible'),
+    ariaHidden: document.querySelector('#boardLock').getAttribute('aria-hidden'),
+    focused: document.activeElement?.id,
+    musicPlaying: window.__runeRampartTest.musicState().playing
+  }));
+  if (resumedFromOverlay.paused || resumedFromOverlay.overlayVisible || resumedFromOverlay.ariaHidden !== 'true' || resumedFromOverlay.focused !== 'pauseButton' || !resumedFromOverlay.musicPlaying) throw new Error(`Pause-overlay resume action did not restore the battle cleanly: ${JSON.stringify(resumedFromOverlay)}`);
+  await page.locator('#pauseButton').click();
+  if (await page.evaluate(() => window.__runeRampartTest.musicState().playing)) throw new Error('MIDI music should pause with the battle');
+  await page.waitForFunction(() => {
+    const save = JSON.parse(localStorage.getItem('runeRampart.progress.v1') || 'null');
+    return save?.reason === 'pause';
+  }, null, { timeout: 3000 });
+  const pausedState = await page.evaluate(() => ({
+    snapshot: window.__runeRampartTest.snapshot(),
+    save: JSON.parse(localStorage.getItem('runeRampart.progress.v1') || 'null')
+  }));
+  if (pausedState.save?.reason !== 'pause' || pausedState.save.wave !== pausedState.snapshot.wave || pausedState.save.shield !== pausedState.snapshot.shield || pausedState.save.emberCharges !== pausedState.snapshot.emberCharges || pausedState.save.mana !== pausedState.snapshot.mana || pausedState.save.board.join(',') !== pausedState.snapshot.board.join(',')) throw new Error(`Pause checkpoint is incomplete: ${JSON.stringify(pausedState)}`);
+
+  const resumePage = await page.context().newPage({ viewport: { width: 980, height: 820 } });
+  resumePage.on('pageerror', (error) => errors.push(`resume pageerror: ${error.message}`));
+  resumePage.on('console', (message) => { if (message.type() === 'error') errors.push(`resume console: ${message.text()}`); });
+  await resumePage.goto('http://127.0.0.1:4173/?testMode=1', { waitUntil: 'networkidle' });
+  if (!await resumePage.locator('#resumeModal').evaluate((node) => node.classList.contains('is-open'))) throw new Error('Saved campaign prompt did not open on reload');
+  if (await resumePage.locator('#introModal').evaluate((node) => node.classList.contains('is-open'))) throw new Error('Difficulty briefing should wait for the resume decision');
+  if (await resumePage.locator('#resumeDifficulty').innerText() !== '萌新' || !await resumePage.locator('#resumeWave').innerText().then((text) => text.includes(String(pausedState.snapshot.wave).padStart(3, '0')))) throw new Error('Resume summary does not describe the saved campaign');
+  await assertMinimumFont(resumePage, 'Resume prompt');
+  await resumePage.screenshot({ path: path.join(output, 'resume-prompt.png'), fullPage: false });
+  await resumePage.setViewportSize({ width: 390, height: 844 });
+  await resumePage.waitForTimeout(180);
+  const mobileResumeFits = await resumePage.locator('.resume-card').evaluate((node) => node.scrollWidth <= node.clientWidth + 1 && document.documentElement.scrollWidth <= window.innerWidth + 1);
+  if (!mobileResumeFits) throw new Error('Mobile resume prompt overflows horizontally');
+  await assertMinimumFont(resumePage, 'Mobile resume prompt');
+  await resumePage.screenshot({ path: path.join(output, 'mobile-resume.png'), fullPage: false });
+  await resumePage.locator('#resumeButton').click();
+  await resumePage.waitForTimeout(40);
+  const restoredState = await resumePage.evaluate(() => ({
+    snapshot: window.__runeRampartTest.snapshot(),
+    music: window.__runeRampartTest.musicState(),
+    log: document.querySelector('#battleLog').innerText,
+    lockVisible: document.querySelector('#boardLock').classList.contains('is-visible')
+  }));
+  if (!restoredState.snapshot.started || restoredState.snapshot.paused || restoredState.lockVisible || restoredState.snapshot.difficulty !== pausedState.snapshot.difficulty || restoredState.snapshot.wave !== pausedState.snapshot.wave || restoredState.snapshot.wall !== pausedState.snapshot.wall || restoredState.snapshot.shield !== pausedState.snapshot.shield || restoredState.snapshot.emberCharges !== pausedState.snapshot.emberCharges || restoredState.snapshot.emberCapacity !== pausedState.snapshot.emberCapacity || restoredState.snapshot.mana !== pausedState.snapshot.mana || restoredState.snapshot.manaCapacity !== pausedState.snapshot.manaCapacity || restoredState.snapshot.forge !== pausedState.snapshot.forge || restoredState.snapshot.board.join(',') !== pausedState.snapshot.board.join(',')) throw new Error(`Continue did not immediately resume the saved campaign: ${JSON.stringify({ pausedState, restoredState })}`);
+  if (!restoredState.music.enabled || !restoredState.music.playing) throw new Error(`Music did not resume immediately: ${JSON.stringify(restoredState)}`);
+  await resumePage.waitForTimeout(80);
+  const runningAfterRestore = await resumePage.evaluate(() => window.__runeRampartTest.snapshot());
+  if (runningAfterRestore.paused || runningAfterRestore.activePlayMs <= restoredState.snapshot.activePlayMs + 40) throw new Error(`Game clock did not continue after restoring: ${JSON.stringify({ restoredState, runningAfterRestore })}`);
+  await resumePage.close();
+
+  const restartPage = await page.context().newPage({ viewport: { width: 980, height: 820 } });
+  await restartPage.goto('http://127.0.0.1:4173/?testMode=1', { waitUntil: 'networkidle' });
+  if (!await restartPage.locator('#resumeModal').evaluate((node) => node.classList.contains('is-open'))) throw new Error('Reloaded campaign no longer offers restart/continue choice');
+  await restartPage.locator('#discardSaveButton').click();
+  if (!await restartPage.locator('#introModal').evaluate((node) => node.classList.contains('is-open'))) throw new Error('Restart choice did not return to campaign briefing');
+  if (!await restartPage.locator('[data-difficulty="veteran"]').evaluate((node) => node.classList.contains('is-selected'))) throw new Error('Restart briefing did not retain the last difficulty');
+  if (await restartPage.evaluate(() => localStorage.getItem('runeRampart.progress.v1')) !== null) throw new Error('Restart choice did not archive the old checkpoint');
+  await restartPage.close();
+  await page.locator('#pauseButton').click();
+  if (!await page.evaluate(() => window.__runeRampartTest.musicState().playing)) throw new Error('MIDI music did not resume after unpausing');
+
+  await page.locator('#helpButton').click();
+  if (!await page.locator('#introModal').evaluate((node) => node.classList.contains('is-open'))) throw new Error('Campaign options did not reopen');
+  if (!await page.locator('#boardLock').evaluate((node) => node.classList.contains('is-visible'))) throw new Error('Opening campaign options did not pause the battle');
+  await page.locator('#introClose').click();
+  if (await page.locator('#introModal').evaluate((node) => node.classList.contains('is-open'))) throw new Error('Campaign options did not close');
+
+  const balance = await page.evaluate(() => {
+    const test = window.__runeRampartTest;
+    const samples = [1, 10, 11, 20, 50, 90, 100].map((wave) => ({
+      wave,
+      veteran: test.waveProfile(wave, 'veteran'),
+      endless: test.waveProfile(wave, 'endless'),
+      master: test.waveProfile(wave, 'master')
+    }));
+    return {
+      samples,
+      masterCurve: Array.from({ length: 100 }, (_, index) => test.waveProfile(index + 1, 'master')),
+      endlessCurve: Array.from({ length: 160 }, (_, index) => test.waveProfile(index + 1, 'endless')),
+      infiniteWaveSamples: ['veteran', 'master', 'endless'].map((difficulty) => ({
+        difficulty,
+        profiles: [100, 101, 250, 99999, 100000].map((wave) => test.waveProfile(wave, difficulty))
+      })),
+      medianVeteran: test.simulateBalance('veteran', 1.3),
+      skilledVeteran: test.simulateBalance('veteran', 1.5),
+      strongMaster: test.simulateBalance('master', 1.5),
+      eliteMaster: test.simulateBalance('master', 1.75),
+      breachProfiles: {
+        veteranOpening: test.breachDamageProfile('assault', 1, 'veteran', 1),
+        endlessOpening: test.breachDamageProfile('assault', 1, 'endless', 1),
+        masterOpening: test.breachDamageProfile('assault', 1, 'master', 1),
+        masterOpeningBoss: test.breachDamageProfile('boss', 1, 'master', 1),
+        masterMid: test.breachDamageProfile('assault', 50, 'master', 5),
+        masterMidBoss: test.breachDamageProfile('boss', 50, 'master', 5),
+        masterLate: test.breachDamageProfile('assault', 100, 'master', 10),
+        masterLateBoss: test.breachDamageProfile('boss', 100, 'master', 10)
+      }
+    };
+  });
+  for (const sample of balance.samples) {
+    if (!(sample.master.enemyCount >= sample.endless.enemyCount && sample.endless.enemyCount >= sample.veteran.enemyCount)) {
+      throw new Error(`Enemy density does not scale by difficulty at wave ${sample.wave}`);
+    }
+    if (!(sample.master.advancedChance > sample.endless.advancedChance && sample.endless.advancedChance > sample.veteran.advancedChance)) {
+      throw new Error(`Advanced-enemy share does not scale at wave ${sample.wave}`);
+    }
+    if (!(sample.veteran.enemyRelicChance > sample.endless.enemyRelicChance && sample.endless.enemyRelicChance > sample.master.enemyRelicChance)) {
+      throw new Error(`Enemy Easter eggs do not become rarer at higher difficulty on wave ${sample.wave}`);
+    }
+    if (sample.veteran.enemyRelicCapPerWave !== 3 || sample.endless.enemyRelicCapPerWave !== 1 || sample.master.enemyRelicCapPerWave !== 0) {
+      throw new Error(`Enemy Easter egg caps are incorrect on wave ${sample.wave}`);
+    }
+    if (!(sample.veteran.runeRelicChance > sample.endless.runeRelicChance && sample.endless.runeRelicChance > sample.master.runeRelicChance)) {
+      throw new Error(`Rune Easter eggs do not become rarer at higher difficulty on wave ${sample.wave}`);
+    }
+    if ([sample.veteran, sample.endless, sample.master].some((profile) => profile.intermission !== 3000)) {
+      throw new Error(`Cleared waves do not use the fixed three-second intermission at wave ${sample.wave}`);
+    }
+  }
+  const wave10 = balance.samples.find((sample) => sample.wave === 10).master;
+  const wave11 = balance.samples.find((sample) => sample.wave === 11).master;
+  const wave100 = balance.samples.find((sample) => sample.wave === 100).master;
+  const wave1 = balance.samples.find((sample) => sample.wave === 1);
+  if (wave1.veteran.enemyCount !== 9 || wave1.endless.enemyCount !== 9 || wave1.master.enemyCount !== 11 || wave1.veteran.hpScale >= 1.25 || wave1.endless.hpScale <= wave1.veteran.hpScale || wave1.master.hpScale >= 1.7) throw new Error(`Opening adaptation targets are not calibrated: ${JSON.stringify(wave1)}`);
+  if (!(wave1.master.spawnInterval < wave1.endless.spawnInterval && wave1.endless.spawnInterval < wave1.veteran.spawnInterval && wave1.master.speedScale > wave1.endless.speedScale && wave1.endless.speedScale > wave1.veteran.speedScale && wave1.master.advancedChance >= .54 && wave1.master.advancedChance < .56)) throw new Error(`Opening density, speed and elite ratio are not pressure-scaled: ${JSON.stringify(wave1)}`);
+  const openingPressure = ['veteran', 'endless', 'master'].map((key) => {
+    const profile = wave1[key];
+    return profile.enemyCount * profile.hpScale * profile.speedScale * (1 + profile.advancedChance);
+  });
+  if (!(openingPressure[1] > openingPressure[0] && openingPressure[2] > openingPressure[1])) throw new Error(`Difficulty tiers are not meaningfully separated: ${JSON.stringify({ wave1, openingPressure })}`);
+  const breach = balance.breachProfiles;
+  if (!(breach.masterOpening.finalDamage > breach.endlessOpening.finalDamage && breach.endlessOpening.finalDamage > breach.veteranOpening.finalDamage)) throw new Error(`Opening breach damage does not scale by difficulty: ${JSON.stringify(breach)}`);
+  if (breach.veteranOpening.hitsToBreak < 15 || breach.endlessOpening.hitsToBreak < 15 || breach.masterOpening.hitsToBreak < 12 || breach.masterOpeningBoss.hitsToBreak < 6) throw new Error(`Opening enemies can erase the wall in too few breaches: ${JSON.stringify(breach)}`);
+  if (breach.masterMid.hitsToBreak < 12 || breach.masterLate.hitsToBreak < 12 || breach.masterMidBoss.hitsToBreak < 6 || breach.masterLateBoss.hitsToBreak < 6) throw new Error(`Mid/late breach damage grows too aggressively for reasonable defense investment: ${JSON.stringify(breach)}`);
+  if ([breach.masterMid, breach.masterLate, breach.masterMidBoss, breach.masterLateBoss].some((sample) => sample.finalDamage >= sample.displayedDamage || sample.hitsToBreak < 1)) throw new Error(`Defense is not applied to breach damage: ${JSON.stringify(breach)}`);
+  if (!wave10.isBossWave || wave11.stage !== wave10.stage + 1 || !(wave11.hpScale > wave10.hpScale)) throw new Error('Ten-wave step-up is not calibrated');
+  if (wave100.stage !== 10 || wave100.bossCount !== 2 || wave100.batchSize !== 5 || wave100.requiredGroups !== 27) throw new Error(`Wave 100 profile is incorrect: ${JSON.stringify(wave100)}`);
+  balance.masterCurve.forEach((profile, index) => {
+    if (index === 0) return;
+    const previous = balance.masterCurve[index - 1];
+    if (profile.enemyCount < previous.enemyCount || profile.requiredGroups < previous.requiredGroups) throw new Error(`Master pressure regresses at wave ${profile.wave}`);
+    if (!(profile.hpScale > previous.hpScale && profile.damageScale > previous.damageScale && profile.defenseScale > previous.defenseScale)) throw new Error(`Master stats do not rise at wave ${profile.wave}`);
+    if (profile.wave % 10 === 0 && !profile.isBossWave) throw new Error(`Boss wave missing at ${profile.wave}`);
+    if (profile.wave % 10 === 1 && profile.wave > 1 && profile.stage !== previous.stage + 1) throw new Error(`Stage transition missing at ${profile.wave}`);
+  });
+  balance.endlessCurve.forEach((profile, index) => {
+    if (index === 0) return;
+    const previous = balance.endlessCurve[index - 1];
+    if (!(profile.hpScale > previous.hpScale && profile.damageScale > previous.damageScale && profile.defenseScale > previous.defenseScale && profile.speedScale > previous.speedScale && profile.intensity > previous.intensity)) throw new Error(`Endless attack pressure does not rise on every wave: ${JSON.stringify({ previous, profile })}`);
+  });
+  balance.infiniteWaveSamples.forEach(({ difficulty, profiles }) => {
+    if (profiles.map((profile) => profile.wave).join(',') !== '100,101,250,99999,100000') {
+      throw new Error(`${difficulty} is still capped at a terminal wave: ${JSON.stringify(profiles)}`);
+    }
+    if (!(profiles[1].hpScale > profiles[0].hpScale && profiles[4].hpScale > profiles[3].hpScale) || profiles.some((profile) => profile.batchSize > 8)) {
+      throw new Error(`${difficulty} does not keep scaling safely in infinite defense: ${JSON.stringify(profiles)}`);
+    }
+  });
+  if (balance.medianVeteran.firstFailure === null || balance.skilledVeteran.firstFailure !== null) throw new Error(`Veteran is not calibrated as a meaningful skill divider: ${JSON.stringify({ median: balance.medianVeteran, skilled: balance.skilledVeteran })}`);
+  if (balance.strongMaster.firstFailure === null || balance.eliteMaster.firstFailure !== null || !(balance.eliteMaster.minimumMargin > 1 && balance.eliteMaster.minimumMargin < 1.1)) throw new Error(`Master is not calibrated for a tiny elite clear window: ${JSON.stringify({ strong: balance.strongMaster, elite: balance.eliteMaster })}`);
+  const eliteLevels = Object.values(balance.eliteMaster.equipment);
+  if (Math.max(...eliteLevels) - Math.min(...eliteLevels) > 1) throw new Error(`Elite auto-upgrade is not balanced: ${JSON.stringify(balance.eliteMaster.equipment)}`);
+
+  await page.evaluate(() => window.__runeRampartTest.clearWave(2));
+  await page.waitForTimeout(150);
+  const earlyClearIntermission = await page.evaluate(() => ({
+    snapshot: window.__runeRampartTest.snapshot(),
+    countdown: document.querySelector('#nextWaveValue').textContent,
+    tooltipRule: (() => {
+      const target = document.querySelector('.next-wave');
+      target.dispatchEvent(new PointerEvent('pointerover', { bubbles: true }));
+      return document.querySelector('#contextTooltipBody').textContent;
+    })()
+  }));
+  if (earlyClearIntermission.snapshot.wave !== 2 || earlyClearIntermission.snapshot.intermissionRemaining < 2700 || earlyClearIntermission.snapshot.intermissionRemaining > 3000 || earlyClearIntermission.countdown !== '3 秒' || !earlyClearIntermission.tooltipRule.includes('固定整备 3 秒')) throw new Error(`Early-cleared wave did not enter the fixed three-second intermission: ${JSON.stringify(earlyClearIntermission)}`);
+  await page.mouse.move(0, 0);
+
+  await page.setViewportSize({ width: 1920, height: 900 });
+  await page.waitForTimeout(350);
+  const ultraWideFit = await page.evaluate(() => {
+    const shell = document.querySelector('#gameShell');
+    const viewport = document.querySelector('#gameViewport');
+    const rect = shell.getBoundingClientRect();
+    const scale = Number.parseFloat(viewport.dataset.scale) || 1;
+    return {
+      scale,
+      rect: rect.toJSON(),
+      viewportWidth: window.innerWidth,
+      viewportHeight: window.innerHeight,
+      documentHeight: document.documentElement.scrollHeight,
+      widthRatio: rect.width / shell.offsetWidth,
+      heightRatio: rect.height / shell.offsetHeight,
+      scaled: viewport.classList.contains('is-scaled')
+    };
+  });
+  if (!ultraWideFit.scaled || !(ultraWideFit.scale < 1)) throw new Error(`Ultra-wide short viewport did not activate proportional fit: ${JSON.stringify(ultraWideFit)}`);
+  if (ultraWideFit.rect.left < -1 || ultraWideFit.rect.right > ultraWideFit.viewportWidth + 1 || ultraWideFit.rect.top < -1 || ultraWideFit.rect.bottom > ultraWideFit.viewportHeight + 1) throw new Error(`Scaled desktop canvas is not fully visible: ${JSON.stringify(ultraWideFit)}`);
+  if (Math.abs(ultraWideFit.widthRatio - ultraWideFit.heightRatio) > .002 || Math.abs(ultraWideFit.widthRatio - ultraWideFit.scale) > .002) throw new Error(`Desktop canvas is not scaled uniformly: ${JSON.stringify(ultraWideFit)}`);
+  if (ultraWideFit.documentHeight > ultraWideFit.viewportHeight + 1) throw new Error(`Scaled desktop canvas still scrolls vertically: ${JSON.stringify(ultraWideFit)}`);
+  const scaledShot = await page.evaluate(() => {
+    const before = document.querySelectorAll('.projectile').length;
+    window.__runeRampartTest.fireBurst();
+    const projectile = document.querySelectorAll('.projectile')[before];
+    const muzzle = document.querySelector('.muzzle-anchor').getBoundingClientRect();
+    const layer = document.querySelector('#projectilesLayer').getBoundingClientRect();
+    const scale = Number.parseFloat(document.querySelector('#gameViewport').dataset.scale) || 1;
+    const muzzlePoint = { x: (muzzle.left + muzzle.width / 2 - layer.left) / scale, y: (muzzle.top + muzzle.height / 2 - layer.top) / scale };
+    const projectilePoint = { x: Number.parseFloat(projectile.style.left), y: Number.parseFloat(projectile.style.top) };
+    return { scale, muzzleError: Math.hypot(muzzlePoint.x - projectilePoint.x, muzzlePoint.y - projectilePoint.y) };
+  });
+  if (scaledShot.muzzleError > 1) throw new Error(`Scaled projectile no longer originates at the cannon muzzle: ${JSON.stringify(scaledShot)}`);
+  await page.screenshot({ path: path.join(output, 'ultrawide-fit.png'), fullPage: false });
+
+  await page.setViewportSize({ width: 844, height: 390 });
+  await page.waitForTimeout(350);
+  const landscapeMobileFit = await page.evaluate(() => {
+    const shell = document.querySelector('#gameShell');
+    const viewport = document.querySelector('#gameViewport');
+    const guard = document.querySelector('#orientationGuard');
+    const rect = shell.getBoundingClientRect();
+    const scale = Number.parseFloat(viewport.dataset.scale) || 1;
+    return {
+      scale,
+      rect: rect.toJSON(),
+      viewportWidth: window.innerWidth,
+      viewportHeight: window.innerHeight,
+      widthRatio: rect.width / shell.offsetWidth,
+      heightRatio: rect.height / shell.offsetHeight,
+      guardVisible: getComputedStyle(guard).display !== 'none',
+      compactLandscape: viewport.classList.contains('is-compact-landscape')
+    };
+  });
+  if (!landscapeMobileFit.compactLandscape || landscapeMobileFit.guardVisible || !(landscapeMobileFit.scale < 1)) throw new Error(`Mobile landscape did not use the fitted desktop canvas: ${JSON.stringify(landscapeMobileFit)}`);
+  if (landscapeMobileFit.rect.left < -1 || landscapeMobileFit.rect.right > landscapeMobileFit.viewportWidth + 1 || landscapeMobileFit.rect.top < -1 || landscapeMobileFit.rect.bottom > landscapeMobileFit.viewportHeight + 1) throw new Error(`Mobile landscape canvas is not fully visible: ${JSON.stringify(landscapeMobileFit)}`);
+  if (Math.abs(landscapeMobileFit.widthRatio - landscapeMobileFit.heightRatio) > .002) throw new Error(`Mobile landscape canvas is not scaled uniformly: ${JSON.stringify(landscapeMobileFit)}`);
+  await page.locator('.wall-status').hover();
+  await page.waitForTimeout(120);
+  const mobileTooltip = await page.locator('#contextTooltip').evaluate((node) => {
+    const rect = node.getBoundingClientRect();
+    return {
+      visible: node.classList.contains('is-visible'),
+      rect: rect.toJSON(),
+      viewport: { width: window.innerWidth, height: window.innerHeight },
+      text: node.textContent.replace(/\s+/g, ' ').trim(),
+      fontSizes: [node, ...node.querySelectorAll('*')].map((child) => Number.parseFloat(getComputedStyle(child).fontSize))
+    };
+  });
+  if (!mobileTooltip.visible || !mobileTooltip.text.includes('护盾') || mobileTooltip.rect.left < 0 || mobileTooltip.rect.right > mobileTooltip.viewport.width || mobileTooltip.rect.top < 0 || mobileTooltip.rect.bottom > mobileTooltip.viewport.height || mobileTooltip.fontSizes.some((size) => size < 14)) throw new Error(`Mobile contextual tooltip is clipped or illegible: ${JSON.stringify(mobileTooltip)}`);
+  await page.screenshot({ path: path.join(output, 'mobile-tooltip.png'), fullPage: false });
+  await page.mouse.move(0, 0);
+  await page.screenshot({ path: path.join(output, 'mobile-landscape.png'), fullPage: false });
+
+  await page.evaluate(() => document.querySelector('#rulesButton').click());
+  await page.locator('#rulesModal.is-open').waitFor({ state: 'visible', timeout: 500 });
+  await page.waitForTimeout(180);
+  const mobileRules = await page.evaluate(() => {
+    const card = document.querySelector('.rules-card');
+    const rect = card.getBoundingClientRect();
+    const forgeLabel = document.querySelector('.forge-meter-wrap > span');
+    return {
+      rect: rect.toJSON(),
+      viewportWidth: window.innerWidth,
+      viewportHeight: window.innerHeight,
+      horizontalFit: card.scrollWidth <= card.clientWidth + 1,
+      sectionCount: card.querySelectorAll('.rule-section').length,
+      paused: window.__runeRampartTest.snapshot().paused,
+      forgeLabelFits: forgeLabel.scrollWidth <= forgeLabel.clientWidth + 1,
+      hasInlineRule: Boolean(document.querySelector('.forge-rule'))
+    };
+  });
+  if (!mobileRules.horizontalFit || mobileRules.sectionCount !== 6 || !mobileRules.paused || !mobileRules.forgeLabelFits || mobileRules.hasInlineRule || mobileRules.rect.left < -2 || mobileRules.rect.right > mobileRules.viewportWidth + 2 || mobileRules.rect.top < -2 || mobileRules.rect.bottom > mobileRules.viewportHeight + 2) throw new Error(`Small-screen rules or upgrade layout overflows: ${JSON.stringify(mobileRules)}`);
+  await assertMinimumFont(page, 'Mobile landscape rules');
+  await page.screenshot({ path: path.join(output, 'mobile-rules.png'), fullPage: false });
+  await page.locator('#rulesClose').click();
+  if (await page.evaluate(() => window.__runeRampartTest.snapshot().paused)) throw new Error('Closing mobile rules did not resume the battle');
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.waitForTimeout(300);
+  const portraitGuard = await page.evaluate(() => ({
+    visible: getComputedStyle(document.querySelector('#orientationGuard')).display !== 'none',
+    message: document.querySelector('#orientationGuard').innerText,
+    shellInert: document.querySelector('#gameShell').inert,
+    bodyLocked: document.body.classList.contains('portrait-game-locked'),
+    fits: document.documentElement.scrollWidth <= window.innerWidth + 1 && document.documentElement.scrollHeight <= window.innerHeight + 1
+  }));
+  if (!portraitGuard.visible || !portraitGuard.shellInert || !portraitGuard.bodyLocked || !portraitGuard.fits || !portraitGuard.message.includes('请将设备横过来') || !portraitGuard.message.includes('电脑')) throw new Error(`Portrait orientation guard is incomplete: ${JSON.stringify(portraitGuard)}`);
+  await assertMinimumFont(page, 'Portrait orientation guard');
+  await page.screenshot({ path: path.join(output, 'mobile-portrait-guard.png'), fullPage: false });
+  await page.evaluate(() => document.querySelector('#helpButton').click());
+  await page.locator('#introModal.is-open').waitFor({ state: 'visible', timeout: 500 });
+  await page.waitForTimeout(300);
+  const mobileDialogFits = await page.locator('.campaign-briefing').evaluate((node) => node.scrollWidth <= node.clientWidth + 1);
+  if (!mobileDialogFits) throw new Error('Mobile campaign options overflow horizontally');
+  if (!await page.locator('.briefing-device-note').innerText().then((text) => text.includes('电脑端体验最佳') && text.includes('横屏'))) throw new Error('Portrait welcome screen is missing the device guidance');
+  await assertMinimumFont(page, 'Mobile welcome');
+  await page.screenshot({ path: path.join(output, 'mobile-welcome.png'), fullPage: false });
+
+  await page.locator('#introClose').click();
+  await page.evaluate(() => window.__runeRampartTest.clearWave(100));
+  await page.waitForTimeout(150);
+  const veteranAtHundred = await page.evaluate(() => ({
+    snapshot: window.__runeRampartTest.snapshot(),
+    waveLabel: document.querySelector('#waveLabel').textContent,
+    waveValue: document.querySelector('#waveValue').textContent,
+    victoryModalExists: Boolean(document.querySelector('#victoryModal'))
+  }));
+  if (veteranAtHundred.snapshot.wave !== 100 || !veteranAtHundred.snapshot.infinite || veteranAtHundred.snapshot.gameOver || veteranAtHundred.victoryModalExists || veteranAtHundred.waveLabel !== '波次' || veteranAtHundred.waveValue !== '100') {
+    throw new Error(`Veteran defense stopped or showed a total at wave 100: ${JSON.stringify(veteranAtHundred)}`);
+  }
+  await page.evaluate(() => window.__runeRampartTest.clearWave(101));
+  await page.waitForTimeout(150);
+  const veteranAfterHundred = await page.evaluate(() => window.__runeRampartTest.snapshot());
+  if (veteranAfterHundred.wave !== 101 || veteranAfterHundred.waveProfile.wave !== 101 || veteranAfterHundred.gameOver) throw new Error(`Veteran defense cannot continue past wave 100: ${JSON.stringify(veteranAfterHundred)}`);
+  const legacyRanking = await page.evaluate(() => window.__runeRampartTest.setHistory([
+    { id: 'legacy-fast-clear', achievedAt: 1000, difficulty: 'veteran', victory: true, clearedWaves: 100, settlementScore: 100, baseScore: 100, activePlayMs: 1000 },
+    { id: 'legacy-slower-high-score-clear', achievedAt: 2000, difficulty: 'veteran', victory: true, clearedWaves: 100, settlementScore: 200, baseScore: 200, activePlayMs: 2000 }
+  ]));
+  if (legacyRanking[0]?.id !== 'legacy-slower-high-score-clear' || !legacyRanking.every((record) => record.victory)) throw new Error(`Legacy victory records were not preserved under wave-first ranking: ${JSON.stringify(legacyRanking)}`);
+  await page.evaluate(() => document.querySelector('#helpButton').click());
+  await page.locator('#introModal.is-open').waitFor({ state: 'visible', timeout: 500 });
+
+  await page.setViewportSize({ width: 1120, height: 900 });
+  await page.waitForTimeout(240);
+  await page.evaluate(() => window.__runeRampartTest.setHistory([
+    { id: 'endless-fewer-higher-score', achievedAt: 1000, difficulty: 'endless', clearedWaves: 120, settlementScore: 999999999, baseScore: 999999999, kills: 999, totalMatches: 999, activePlayMs: 1000 },
+    { id: 'endless-more-lower-score', achievedAt: 1500, difficulty: 'endless', clearedWaves: 250, settlementScore: 1, baseScore: 1, kills: 0, totalMatches: 0, activePlayMs: 999000 },
+    { id: 'master-low', achievedAt: 4000, difficulty: 'master', clearedWaves: 0, settlementScore: 1, baseScore: 1, kills: 0, totalMatches: 0, activePlayMs: 1000 },
+    { id: 'veteran-late', achievedAt: 3000, difficulty: 'veteran', clearedWaves: 10, settlementScore: 18000, baseScore: 2800, kills: 20, totalMatches: 12, activePlayMs: 100000 },
+    { id: 'veteran-early', achievedAt: 2000, difficulty: 'veteran', clearedWaves: 10, settlementScore: 18000, baseScore: 2800, kills: 20, totalMatches: 12, activePlayMs: 100000 }
+  ]));
+  await page.locator('[data-difficulty="veteran"]').click();
+  await page.locator('#startButton').click();
+  await page.waitForTimeout(120);
+  const settlementHistory = await page.evaluate(() => window.__runeRampartTest.forceFailure({
+    difficulty: 'veteran', wave: 13, score: 5000, kills: 42, totalMatches: 18, repaired: 260, activePlayMs: 125000
+  }));
+  await page.locator('#gameOverModal.is-open').waitFor({ state: 'visible', timeout: 500 });
+  const settlementView = await page.evaluate(() => ({
+    rank: document.querySelector('#finalRank').textContent,
+    difficulty: document.querySelector('#finalDifficulty').textContent,
+    wave: document.querySelector('#finalWave').textContent,
+    kills: document.querySelector('#finalKills').textContent,
+    matches: document.querySelector('#finalMatches').textContent,
+    time: document.querySelector('#finalTime').textContent,
+    score: document.querySelector('#finalScore').textContent,
+    breakdown: document.querySelector('#finalScoreBreakdown').textContent,
+    boardParent: document.querySelector('#historyBoard').parentElement?.id,
+    currentRows: document.querySelectorAll('#historyRows tr.is-current').length,
+    rows: [...document.querySelectorAll('#historyRows tr')].map((row) => [...row.cells].map((cell) => cell.textContent))
+  }));
+  if (settlementView.rank !== '#04' || settlementView.difficulty !== '萌新' || settlementView.wave !== '12' || settlementView.kills !== '42' || settlementView.matches !== '18' || settlementView.time !== '02:05' || settlementView.score.replace(/\D/g, '') !== '23250' || !settlementView.breakdown.includes('基础军功 5,000') || !settlementView.breakdown.includes('波次 18,000') || settlementView.boardParent !== 'failureHistorySlot' || settlementView.currentRows !== 1) {
+    throw new Error(`Failure settlement does not explain the result: ${JSON.stringify(settlementView)}`);
+  }
+  const historyIds = settlementHistory.map((record) => record.id);
+  if (historyIds[0] !== 'master-low' || historyIds[1] !== 'endless-more-lower-score' || historyIds[2] !== 'endless-fewer-higher-score' || historyIds.indexOf('veteran-early') > historyIds.indexOf('veteran-late')) {
+    throw new Error(`History ranking does not follow difficulty, achievement and earlier-time priority: ${JSON.stringify(settlementHistory)}`);
+  }
+  if (settlementView.rows[0]?.[1] !== '大佬' || settlementView.rows[1]?.[1] !== '老兵' || settlementView.rows[1]?.[2] !== '250 波' || settlementView.rows[3]?.[1] !== '萌新') throw new Error(`History ranking UI order is incorrect: ${JSON.stringify(settlementView.rows)}`);
+  await page.locator('[data-history-filter="veteran"]').click();
+  const veteranRanking = await page.evaluate(() => ({
+    active: document.querySelector('[data-history-filter="veteran"]').getAttribute('aria-pressed'),
+    count: document.querySelector('#historyCount').textContent,
+    rows: [...document.querySelectorAll('#historyRows tr')].map((row) => [...row.cells].map((cell) => cell.textContent)),
+    currentRank: document.querySelector('#historyRows tr.is-current td')?.textContent
+  }));
+  if (veteranRanking.active !== 'true' || veteranRanking.count !== '3 条战报' || veteranRanking.rows.some((row) => row[1] !== '萌新') || veteranRanking.rows[0]?.[0] !== '#01' || veteranRanking.currentRank !== '#01') throw new Error(`Difficulty-specific ranking did not rerank veteran records: ${JSON.stringify(veteranRanking)}`);
+  await page.locator('[data-history-filter="endless"]').click();
+  const endlessRanking = await page.evaluate(() => [...document.querySelectorAll('#historyRows tr')].map((row) => [...row.cells].map((cell) => cell.textContent)));
+  if (endlessRanking.length !== 2 || endlessRanking[0]?.[0] !== '#01' || endlessRanking[0]?.[2] !== '250 波' || endlessRanking[1]?.[2] !== '120 波') throw new Error(`Endless ranking does not prioritize cleared waves: ${JSON.stringify(endlessRanking)}`);
+  await page.locator('[data-history-filter="master"]').click();
+  const masterRanking = await page.evaluate(() => [...document.querySelectorAll('#historyRows tr')].map((row) => [...row.cells].map((cell) => cell.textContent)));
+  if (masterRanking.length !== 1 || masterRanking[0][0] !== '#01' || masterRanking[0][1] !== '大佬') throw new Error(`Master-only ranking is incorrect: ${JSON.stringify(masterRanking)}`);
+  await page.locator('[data-history-filter="all"]').click();
+  if (await page.locator('#historyRows tr').count() !== 6) throw new Error('Overall ranking did not return after difficulty filtering');
+  await assertMinimumFont(page, 'Failure settlement');
+  await page.screenshot({ path: path.join(output, 'failure-settlement.png'), fullPage: false });
+
+  const historyPage = await page.context().newPage({ viewport: { width: 1120, height: 900 } });
+  await historyPage.goto('http://127.0.0.1:4173/?testMode=1', { waitUntil: 'networkidle' });
+  const persistedHistory = await historyPage.evaluate(() => window.__runeRampartTest.history());
+  if (persistedHistory.map((record) => record.id).join(',') !== historyIds.join(',')) throw new Error(`Local ranking did not persist after reload: ${JSON.stringify({ historyIds, persistedHistory })}`);
+  await historyPage.close();
+
+  if (errors.length) throw new Error(errors.join('\n'));
+  console.log(`PASS score=${afterScore} enemies=${await page.locator('.enemy').count()} errors=0`);
+  await browser.close();
+  activeBrowser = null;
+})().catch(async (error) => {
+  console.error(error);
+  if (activeBrowser) await activeBrowser.close();
+  process.exitCode = 1;
+});

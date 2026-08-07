@@ -1,0 +1,614 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#171913" />
+    <title>符文守护</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%23171913'/%3E%3Cpath d='M32 7 53 22 45 49 32 58 19 49 11 22Z' fill='%23d55237' stroke='%23f1ead6' stroke-width='4'/%3E%3Cpath d='M32 17v31M21 30h22' stroke='%23f1ead6' stroke-width='4'/%3E%3C/svg%3E" />
+    <script>
+      (() => {
+        const RETRY_PARAM = 'rr_asset_retry';
+        const RETRY_KEY = 'runeRampart.assetRecovery.v1';
+        const RETRY_WINDOW = 45_000;
+        const state = { reloading: false, promptVisible: false };
+        const storage = {
+          read() {
+            try { return Number(sessionStorage.getItem(RETRY_KEY)) || 0; } catch (error) { return 0; }
+          },
+          write(value) {
+            try { sessionStorage.setItem(RETRY_KEY, String(value)); } catch (error) { /* URL marker remains as fallback. */ }
+          },
+          clear() {
+            try { sessionStorage.removeItem(RETRY_KEY); } catch (error) { /* Storage can be unavailable in privacy mode. */ }
+          }
+        };
+        const isBuildAsset = (value) => {
+          if (!value) return false;
+          try {
+            const url = new URL(value, location.href);
+            return url.origin === location.origin && (
+              url.pathname.startsWith('/_app/')
+              || /^\/assets\/index-[^/]+\.(?:js|css)$/.test(url.pathname)
+            );
+          } catch (error) {
+            return false;
+          }
+        };
+        const isVersionSkewError = (value) => /failed to fetch dynamically imported module|importing a module script failed|error loading dynamically imported module|module script.*failed/i.test(String(value || ''));
+        const showRecovery = (reason = '资源版本不一致') => {
+          if (state.promptVisible) return;
+          state.promptVisible = true;
+          const mount = () => {
+            if (document.querySelector('#assetRecoveryPanel')) return;
+            const panel = document.createElement('section');
+            panel.id = 'assetRecoveryPanel';
+            panel.setAttribute('role', 'alert');
+            panel.setAttribute('aria-live', 'assertive');
+            panel.style.cssText = 'position:fixed;inset:0;z-index:2147483647;display:grid;place-items:center;padding:24px;background:#171913;color:#f1ead6;font-family:serif;text-align:center';
+            const card = document.createElement('div');
+            card.style.cssText = 'width:min(420px,100%);padding:28px 24px;border:2px solid #d8a834;background:#26271f;box-shadow:0 16px 50px rgba(0,0,0,.55)';
+            const title = document.createElement('h1');
+            title.textContent = '战场资源正在更新';
+            title.style.cssText = 'margin:0 0 12px;font-size:24px;color:#f4d675';
+            const message = document.createElement('p');
+            message.textContent = '新旧版本切换没有完整加载。点击下方按钮即可重新取得最新资源，本地战局存档不会丢失。';
+            message.style.cssText = 'margin:0 0 18px;font-size:16px;line-height:1.7';
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.textContent = '重新载入游戏';
+            button.style.cssText = 'min-width:220px;min-height:54px;padding:10px 20px;border:1px solid #ffe9a0;background:#d8a834;color:#271d0b;font:900 17px serif;cursor:pointer';
+            button.addEventListener('click', () => {
+              storage.clear();
+              const next = new URL(location.href);
+              next.searchParams.set(RETRY_PARAM, Date.now().toString(36));
+              location.replace(next.href);
+            });
+            const detail = document.createElement('small');
+            detail.textContent = reason;
+            detail.style.cssText = 'display:block;margin-top:14px;color:#a9a28d;font-size:12px';
+            card.append(title, message, button, detail);
+            panel.append(card);
+            document.body.append(panel);
+            button.focus();
+          };
+          if (document.body) mount();
+          else document.addEventListener('DOMContentLoaded', mount, { once: true });
+        };
+        const retry = (reason) => {
+          if (state.reloading) return;
+          const now = Date.now();
+          const next = new URL(location.href);
+          if (next.searchParams.has(RETRY_PARAM) || now - storage.read() < RETRY_WINDOW) {
+            showRecovery(reason);
+            return;
+          }
+          state.reloading = true;
+          storage.write(now);
+          next.searchParams.set(RETRY_PARAM, now.toString(36));
+          next.hash = '';
+          location.replace(next.href);
+        };
+        addEventListener('error', (event) => {
+          const target = event.target;
+          if (target && target !== window && isBuildAsset(target.src || target.href)) retry('核心资源加载失败');
+          else if (target === window && isVersionSkewError(event.message)) retry('脚本版本不一致');
+        }, true);
+        addEventListener('vite:preloadError', (event) => {
+          event.preventDefault();
+          retry('扩展资源版本不一致');
+        });
+        addEventListener('unhandledrejection', (event) => {
+          const message = event.reason?.message || event.reason;
+          if (isVersionSkewError(message)) retry('模块资源加载失败');
+        });
+        window.__runeRampartAssetRecovery = Object.freeze({
+          markReady(buildId) {
+            storage.clear();
+            document.documentElement.dataset.build = String(buildId || 'unknown');
+            const clean = new URL(location.href);
+            if (clean.searchParams.has(RETRY_PARAM)) {
+              clean.searchParams.delete(RETRY_PARAM);
+              history.replaceState(history.state, '', clean.href);
+            }
+          },
+          showFatal(error) {
+            const message = error?.message || error;
+            if (isVersionSkewError(message)) retry('游戏模块版本不一致');
+            else showRecovery('游戏启动失败，请重新载入');
+          }
+        });
+      })();
+    </script>
+    <link rel="stylesheet" href="./styles.css" />
+    <script type="text/javascript">
+      (function(c,l,a,r,i,t,y){
+        c[a]=c[a]||function(){(c[a].q=c[a].q||[]).push(arguments)};
+        t=l.createElement(r);t.async=1;t.src="https://www.clarity.ms/tag/"+i;
+        y=l.getElementsByTagName(r)[0];y.parentNode.insertBefore(t,y);
+      })(window, document, "clarity", "script", "mfw57bbfor");
+    </script>
+  </head>
+  <body>
+    <div class="grain" aria-hidden="true"></div>
+    <div class="game-viewport" id="gameViewport">
+    <main class="game-shell" id="gameShell">
+      <header class="topbar">
+        <div class="brand-lockup">
+          <img class="chapter-mark" src="./assets/rune-rampart-seal.svg" alt="" width="52" height="52" />
+          <div>
+            <h1>符文守护</h1>
+            <p>Match-3 Defense / 三消城防战</p>
+          </div>
+        </div>
+
+        <div class="campaign-stats" aria-label="战局数据">
+          <div class="stat-stamp difficulty-stamp" data-tooltip-key="difficulty">
+            <span>难度</span>
+            <strong id="difficultyValue">萌新</strong>
+          </div>
+          <div class="stat-stamp" data-tooltip-key="wave">
+            <span id="waveLabel">波次</span>
+            <strong id="waveValue">001</strong>
+          </div>
+          <div class="stat-stamp" data-tooltip-key="kills">
+            <span>歼敌</span>
+            <strong id="killValue">000</strong>
+          </div>
+          <div class="stat-stamp score-stamp" data-tooltip-key="score">
+            <span>军功</span>
+            <strong id="scoreValue">00000</strong>
+          </div>
+        </div>
+
+        <div class="header-actions">
+          <button class="text-button" id="helpButton" type="button" data-tooltip-key="campaignOptions">
+            <span class="restart-long">战役选项</span><span class="restart-short" aria-hidden="true">重开</span>
+          </button>
+          <button class="icon-button rules-button" id="rulesButton" type="button" aria-label="查看游戏规则" data-tooltip-key="rules">
+            <span aria-hidden="true">?</span>
+          </button>
+          <button class="icon-button leaderboard-button" id="leaderboardButton" type="button" aria-label="查看本机排行榜" data-tooltip-key="leaderboard">
+            <span aria-hidden="true">榜</span>
+          </button>
+          <button class="icon-button" id="fullscreenButton" type="button" aria-label="进入全屏" data-tooltip-key="fullscreen">
+            <span aria-hidden="true">⛶</span>
+          </button>
+          <div class="music-controls" role="group" aria-label="MIDI 军乐控制">
+            <button class="icon-button music-button" id="musicButton" type="button" aria-label="关闭 MIDI 配乐" title="关闭 MIDI 配乐" aria-pressed="true">
+              <span aria-hidden="true">♫</span>
+            </button>
+            <button class="icon-button track-skip-button" id="nextTrackButton" type="button" aria-label="切换下一首" title="切换下一首">
+              <span aria-hidden="true">»</span>
+            </button>
+            <span class="music-hover-tip" id="musicHoverTip" aria-hidden="true">
+              <b id="musicTrackCount">第 1 / 20 首</b>
+              <span>当前 · <strong id="musicCurrentTitle">方块疾行 · 科罗贝尼基</strong></span>
+              <span>下一首 · <strong id="musicNextTitle">山王逼近 · 山魔王宫殿</strong></span>
+            </span>
+          </div>
+          <button class="icon-button sound-button" id="soundButton" type="button" aria-label="关闭音效" data-tooltip-key="sound">
+            <span class="sound-icon" aria-hidden="true">♪</span>
+          </button>
+          <button class="icon-button" id="pauseButton" type="button" aria-label="暂停游戏" data-tooltip-key="pause">
+            <span class="pause-icon">Ⅱ</span>
+          </button>
+        </div>
+      </header>
+
+      <section class="status-rail" aria-label="堡垒状态">
+        <div class="wall-status" data-tooltip-key="wall">
+          <div class="meter-copy">
+            <span>城墙耐久</span>
+            <strong><span id="wallValue">1000</span> / <span id="wallMaxValue">1000</span><em class="shield-rail-value">盾 <b id="shieldRailValue">0</b></em></strong>
+          </div>
+          <div class="meter-track wall-track"><span id="wallMeter"></span><i id="shieldMeter" aria-hidden="true"></i></div>
+        </div>
+        <div class="threat-status">
+          <span class="pulse-dot"></span>
+          <span id="threatText">第一波斥候正在逼近</span>
+        </div>
+        <div class="pressure-status" data-tooltip-key="pressure">
+          <span id="pressureTierValue">第 1 阶段</span>
+          <strong><b id="waveMatchValue">0</b> / <b id="waveMatchTarget">4</b> 组</strong>
+          <small id="powerDelta">本波建议消除量</small>
+        </div>
+      </section>
+
+      <div class="game-grid">
+        <section class="panel rune-panel" aria-labelledby="runeTitle">
+          <div class="panel-heading">
+            <div>
+              <span class="eyebrow">符文工坊 / 01</span>
+              <h2 id="runeTitle">调度符文</h2>
+            </div>
+            <div class="combo-badge" id="comboBadge" data-tooltip-key="combo">
+              <span>连锁</span>
+              <strong id="comboValue">×1</strong>
+            </div>
+          </div>
+
+          <div class="rune-legend" aria-label="符文效果">
+            <div class="legend-item ember" data-tooltip-key="ember"><i>◆</i><span>余烬</span><strong id="emberValue">0</strong></div>
+            <div class="legend-item mana" data-tooltip-key="mana"><i>✦</i><span>奥能</span><strong id="manaValue">0</strong></div>
+            <div class="legend-item moss" data-tooltip-key="energy"><i>⬟</i><span>能量</span><strong id="energyValue">0 / 560</strong></div>
+            <div class="legend-item coin" data-tooltip-key="forge"><i>●</i><span>补强</span><strong id="forgeValue">0</strong></div>
+          </div>
+
+          <div class="board-frame">
+            <div class="corner corner-tl"></div>
+            <div class="corner corner-tr"></div>
+            <div class="corner corner-bl"></div>
+            <div class="corner corner-br"></div>
+            <div class="match-board" id="matchBoard" role="grid" aria-label="七乘七符文棋盘，可点击相邻符文，或拖向上下左右的相邻格并松开换位"></div>
+            <div class="board-effects" id="boardEffects" aria-hidden="true"></div>
+            <div class="cascade-callout" id="cascadeCallout" role="status" aria-live="polite" aria-atomic="true">
+              <span id="cascadeTitle">自动连锁</span>
+              <strong id="cascadeValue">×2</strong>
+              <small id="cascadeMultiplier">收益倍率 ×1.6</small>
+              <div class="cascade-score"><em>累计军功</em><b id="cascadeScore">+0</b></div>
+              <div class="cascade-gains">
+                <span>补强 <b id="cascadeForge">+0</b></span>
+                <span>奥能 <b id="cascadeMana">+0</b></span>
+                <span>防御 <b id="cascadeEnergy">+0</b></span>
+              </div>
+            </div>
+            <div class="board-lock" id="boardLock" aria-hidden="true">
+              <div class="board-lock-panel">
+                <span class="board-lock-status" id="boardLockStatus">战局暂停</span>
+                <button class="board-resume-button" id="boardResumeButton" type="button" aria-describedby="boardLockStatus" disabled>
+                  <i aria-hidden="true">▶</i>
+                  <strong>恢复游戏</strong>
+                  <small>从当前结算进度继续</small>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <p class="board-hint"><span>操作：</span>点击相邻符文，或拖到邻位后松开</p>
+        </section>
+
+        <section class="panel battle-panel" aria-labelledby="battleTitle">
+          <div class="panel-heading battle-heading">
+            <div>
+              <span class="eyebrow">符文战场 / 02</span>
+              <h2 id="battleTitle">顶住这一波</h2>
+            </div>
+            <div class="wave-chip" data-tooltip-key="waveState"><span id="waveState">敌军 0 / 7</span><i></i></div>
+          </div>
+
+          <div class="battlefield" id="battlefield" aria-label="塔防战场">
+            <div class="sky-scratches"></div>
+            <div class="mountain mountain-a"></div>
+            <div class="mountain mountain-b"></div>
+            <div class="watchtower far-one"></div>
+            <div class="watchtower far-two"></div>
+            <div class="battle-sun"></div>
+            <div class="lane-lines"><i></i><i></i><i></i></div>
+
+            <div class="threat-cluster">
+              <aside class="target-dossier is-empty" id="targetDossier" aria-live="polite">
+                <div class="target-identity">
+                  <div class="target-dossier-heading">
+                    <span>当前威胁 <em>/ TARGET</em></span>
+                    <i></i>
+                  </div>
+                  <strong id="targetName">前线侦察中</strong>
+                  <small id="targetRole">尚未发现敌军</small>
+                </div>
+                <div class="target-stats">
+                  <div data-tooltip-key="targetDamage"><span>伤害</span><b id="targetAttack">—</b></div>
+                  <div data-tooltip-key="targetDefense"><span>防御</span><b id="targetDefense">—</b></div>
+                  <div data-tooltip-key="targetHealth"><span>生命</span><b id="targetHealth">—</b></div>
+                </div>
+                <div class="target-health-track"><span id="targetHealthMeter"></span></div>
+              </aside>
+            </div>
+
+            <section class="field-hud" aria-label="我方战斗属性">
+              <div class="field-hud-stat attack" data-tooltip-key="allyAttack"><i aria-hidden="true">⌁</i><span>攻</span><b id="hudAttack">27</b></div>
+              <div class="field-hud-stat defense" data-tooltip-key="allyDefense"><i aria-hidden="true">◇</i><span>防</span><b id="hudDefense">6%</b></div>
+              <div class="field-hud-stat speed" data-tooltip-key="allySpeed"><i aria-hidden="true">»</i><span>速</span><b id="hudSpeed">1.0</b></div>
+            </section>
+            <div class="combat-buffs" id="combatBuffs" aria-live="polite"></div>
+
+            <div class="fortress" id="fortress">
+              <div class="flag"><span></span></div>
+              <div class="turret"><i></i><span class="turret-pivot" aria-hidden="true"></span><span class="muzzle-anchor" aria-hidden="true"></span></div>
+              <div class="keep"><span></span><span></span><span></span></div>
+              <div class="wall-blocks"><i></i><i></i><i></i></div>
+            </div>
+
+            <div class="enemies-layer" id="enemiesLayer"></div>
+            <div class="projectiles-layer" id="projectilesLayer"></div>
+            <div class="impact-effects-layer" id="impactEffectsLayer"></div>
+            <div class="combat-toast-layer" id="combatToastLayer"></div>
+
+            <div class="wave-announcement" id="waveAnnouncement">
+              <span>WAVE 01</span>
+              <strong>斥候来袭</strong>
+            </div>
+
+            <div class="battle-log" id="battleLog" aria-live="polite">
+              <p><span>军情</span> 第一波敌军已进入射程</p>
+            </div>
+          </div>
+
+          <div class="tactics-row">
+            <button class="skill-card" id="volleyButton" type="button" data-tooltip-key="arcaneVolley" disabled>
+              <span class="skill-icon">✦</span>
+              <span><strong>奥术齐射</strong><small>全场伤害 · 消耗 18 奥能</small></span>
+              <kbd>Q</kbd>
+            </button>
+            <div class="next-wave" data-tooltip-key="nextWave">
+              <span>下一批敌军</span>
+              <strong id="nextWaveValue">交战中</strong>
+            </div>
+          </div>
+
+          <section class="arsenal compact-arsenal" aria-labelledby="arsenalTitle">
+            <div class="equipment-upgrade-banner" id="equipmentUpgradeBanner" aria-live="polite">
+              <span>军械升级 / AUTO-EQUIP</span>
+              <strong id="upgradeEquipmentName">余烬连弩</strong>
+              <small id="upgradeEquipmentLevel">LV.2 · 已自动装备</small>
+            </div>
+            <h3 class="visually-hidden" id="arsenalTitle">军械升级调度</h3>
+            <div class="upgrade-console">
+              <div class="strategy-copy">
+                <span>下一次升级</span>
+                <small id="strategyHint">自动 · 本次攻击</small>
+              </div>
+              <div class="forge-meter-wrap" aria-label="补强进度" data-tooltip-key="forgeProgress">
+                <span><em id="forgeTargetName">攻击 LV.1→2</em><b id="forgeProgressText">0 / 26</b></span>
+                <div class="meter-track forge-track"><span id="forgeMeter"></span></div>
+              </div>
+              <div class="strategy-options" role="group" aria-label="选择升级优先级">
+                <button class="strategy-button is-active" type="button" data-upgrade="auto" data-tooltip-key="upgradeStrategy" aria-pressed="true"><i>✦</i>自动</button>
+                <button class="strategy-button" type="button" data-upgrade="weapon" data-tooltip-key="upgradeStrategy" aria-pressed="false"><i>⌁</i>攻击</button>
+                <button class="strategy-button" type="button" data-upgrade="armor" data-tooltip-key="upgradeStrategy" aria-pressed="false"><i>◇</i>防御</button>
+                <button class="strategy-button" type="button" data-upgrade="charm" data-tooltip-key="upgradeStrategy" aria-pressed="false"><i>»</i>攻速</button>
+              </div>
+            </div>
+            <section class="battle-loadout" aria-label="当前军械数值">
+              <article class="loadout-stat weapon-card" id="weaponCard" data-tooltip-key="weaponLoadout">
+                <span>弩炮 · LV.<b id="weaponLevel">1</b></span>
+                <strong id="weaponStat">攻击 27</strong>
+                <small id="weaponName">新兵弩</small>
+              </article>
+              <article class="loadout-stat charm-card" id="charmCard" data-tooltip-key="charmLoadout">
+                <span>射速 · LV.<b id="charmLevel">1</b></span>
+                <strong id="charmStat">1.0/秒 · 单发</strong>
+                <small id="charmName">斥候号角</small>
+              </article>
+              <article class="loadout-stat armor-card" id="armorCard" data-tooltip-key="armorLoadout">
+                <span>城防 · LV.<b id="armorLevel">1</b></span>
+                <strong id="armorStat">减伤 6%</strong>
+                <small id="armorName">橡木城栅</small>
+              </article>
+            </section>
+          </section>
+        </section>
+      </div>
+    </main>
+    </div>
+
+    <div class="orientation-guard" id="orientationGuard" role="status" aria-hidden="true">
+      <div class="orientation-card">
+        <span class="orientation-icon" aria-hidden="true">↻</span>
+        <div>
+          <span>移动端作战提示</span>
+          <h2>请将设备横过来</h2>
+          <p>战场仅适配手机横屏；使用电脑游玩可获得最佳视野与操作体验。</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="modal-backdrop is-open" id="introModal" role="dialog" aria-modal="true" aria-labelledby="introTitle" aria-describedby="introDescription">
+      <div class="briefing-card campaign-briefing">
+        <button class="modal-close" id="introClose" type="button" aria-label="关闭说明">×</button>
+        <span class="briefing-kicker">符文守护 · 战役配置</span>
+        <h2 id="introTitle">调度符文，<br />守住每一波。</h2>
+        <p id="introDescription">前 10 波用于熟悉战场和发展军械；此后敌军每波都会增强，每 10 波再跃升一个阶段。持续消除并正确分配攻击、攻速与防御，才能守得更久。</p>
+        <p class="briefing-device-note"><b>设备建议</b> 电脑端体验最佳；使用手机时请切换到横屏。</p>
+
+        <fieldset class="difficulty-picker">
+          <legend>选择战役难度</legend>
+          <div class="difficulty-options">
+            <button class="difficulty-card is-selected" type="button" data-difficulty="veteran" aria-pressed="true">
+              <span><b>萌新</b><i>01</i></span>
+              <strong>每波约 4 组起 · 无限防御</strong>
+              <small>高阶 35% 起 · 约 9 敌起 · 彩蛋偏少</small>
+            </button>
+            <button class="difficulty-card" type="button" data-difficulty="endless" aria-pressed="false">
+              <span><b>老兵</b><i>02</i></span>
+              <strong>每波约 4 组起 · 无限防御</strong>
+              <small>高阶 42% 起 · 约 9 敌起 · 中段压力</small>
+            </button>
+            <button class="difficulty-card" type="button" data-difficulty="master" aria-pressed="false">
+              <span><b>大佬</b><i>03</i></span>
+              <strong>每波约 5 组起 · 无限防御</strong>
+              <small>高阶 54% 起 · 约 11 敌起 · 无敌军彩蛋</small>
+            </button>
+          </div>
+        </fieldset>
+
+        <div class="enemy-intel" aria-label="敌军兵种说明">
+          <span>敌军图鉴</span>
+          <div><i class="swift-mark">»</i><b>速度型</b></div>
+          <div><i class="assault-mark">†</i><b>攻击型</b></div>
+          <div><i class="brute-mark">◇</i><b>防御型</b></div>
+          <div><i class="raider-mark">◆</i><b>均衡型</b></div>
+          <div><i class="boss-mark">♛</i><b>Boss</b></div>
+        </div>
+
+        <div class="briefing-rules">
+          <div><i class="ember">◆</i><span><b>红曜石</b>储备余烬，储备上限随攻击成长</span></div>
+          <div><i class="mana">✦</i><span><b>蓝晶</b>储存奥能，奥能上限随攻速成长</span></div>
+          <div><i class="moss">⬟</i><span><b>绿晶</b>产生防御能量：先修耐久，剩余转为护盾</span></div>
+          <div><i class="coin">●</i><span><b>补强</b>每组消除均推进；长连和铸币组额外增加</span></div>
+        </div>
+        <p class="briefing-music-note"><b>♫ 20 首 MIDI 军乐</b><span>科罗贝尼基 · 欢乐颂 · 四季 · 传统民谣 · 原创战曲 / 自动循环，可随时切歌</span></p>
+        <button class="primary-button" id="startButton" type="button"><span>以「萌新」出征</span><small>开始无限防御</small></button>
+        <p class="briefing-note">战役中可从右上角重新打开此界面；确认出征将重开游戏。</p>
+      </div>
+    </div>
+
+    <div class="modal-backdrop" id="resumeModal" role="dialog" aria-modal="true" aria-labelledby="resumeTitle" aria-describedby="resumeDescription">
+      <div class="briefing-card resume-card">
+        <span class="briefing-kicker">未完战报 · LOCAL CHECKPOINT</span>
+        <h2 id="resumeTitle">烽火尚未熄灭。</h2>
+        <p id="resumeDescription">浏览器中保存着一场未结束的战役。你可以回到保存位置，也可以归档旧战报并重新部署。</p>
+        <div class="resume-summary" aria-label="已保存战役信息">
+          <div><span>难度</span><strong id="resumeDifficulty">萌新</strong></div>
+          <div><span>波次</span><strong id="resumeWave">001</strong></div>
+          <div><span>城墙</span><strong id="resumeWall">1120 / 1120</strong></div>
+          <div><span>军功</span><strong id="resumeScore">00000</strong></div>
+        </div>
+        <p class="resume-time">保存时间：<time id="resumeSavedAt">刚刚</time></p>
+        <div class="resume-actions">
+          <button class="primary-button" id="resumeButton" type="button"><span>继续第 1 波</span><small>恢复棋盘与战场状态</small></button>
+          <button class="secondary-button" id="discardSaveButton" type="button"><span>重新部署</span><small>归档旧进度并选择难度</small></button>
+        </div>
+        <p class="briefing-note">进度仅保存在当前浏览器；每波开始、暂停和离开页面时都会自动更新。</p>
+      </div>
+    </div>
+
+    <div class="modal-backdrop" id="rulesModal" role="dialog" aria-modal="true" aria-labelledby="rulesTitle" aria-describedby="rulesDescription">
+      <div class="briefing-card rules-card">
+        <button class="modal-close" id="rulesClose" type="button" aria-label="关闭游戏规则">×</button>
+        <span class="briefing-kicker">作战条例 · FIELD MANUAL</span>
+        <h2 id="rulesTitle">游戏规则</h2>
+        <p id="rulesDescription">战场只显示当前决策；所有完整规则都可以随时回到这里查看。</p>
+
+        <div class="rules-grid">
+          <section class="rule-section rune-rule">
+            <h3><i aria-hidden="true">✦</i> 符文消除</h3>
+            <ul>
+              <li>点击两枚相邻符文，或按住一枚拖向上下左右的可用邻位；松开鼠标或手指后才会换位。</li>
+              <li>换位后连成 3 枚或以上即可消除；没有形成消除时，符文会自动换回原位。</li>
+              <li>每个消除组提供 1 点补强；四连额外 +1，五连及以上额外 +2，铸币组再额外 +1。</li>
+              <li>红曜石储备余烬齐射，蓝晶积蓄奥能；升级攻击会提高余烬上限，升级攻速会提高奥能上限。</li>
+              <li>绿晶提供防御能量；能量先修复缺失耐久，剩余部分转化为护盾。能量与护盾上限均为耐久上限的 50%。</li>
+            </ul>
+          </section>
+
+          <section class="rule-section forge-rule-card">
+            <h3><i aria-hidden="true">◇</i> 军械补强</h3>
+            <ul>
+              <li>攻击、防御、攻速分别按自身等级计算下一级费用，等级越高费用越高。</li>
+              <li>切换优先目标不会损失已有补强；“自动”会为本次升级选定目标，升级后再重选。</li>
+              <li>攻击每升一级使余烬上限 +4；攻速每升一级使奥能上限 +9。</li>
+              <li>防御每升一级增加减伤，并使城墙耐久上限 +90、护盾上限 +45，同时修复最多 90 点耐久。</li>
+              <li>补强增加与升级消费都会在 HUD、数值动画和军情中明确反馈。</li>
+            </ul>
+          </section>
+
+          <section class="rule-section battle-rule">
+            <h3><i aria-hidden="true">⌁</i> 城防战斗</h3>
+            <ul>
+              <li>尚未进入战场的敌人无法被锁定；进场后弩炮会自动瞄准最接近城墙的目标。</li>
+              <li>未被消灭的敌人抵达终点会自爆：先应用城防减伤，再消耗护盾，最后才扣耐久。</li>
+              <li>敌军分速度、攻击、防御、均衡与 Boss 型，外观和战斗属性各不相同。</li>
+              <li>攻速提高后会逐步变为多枚齐射；奥能达到 18 点可发动全场攻击。</li>
+              <li>一波敌军全部肃清后固定整备 3 秒，随后自动开始下一波。</li>
+            </ul>
+          </section>
+
+          <section class="rule-section relic-rule">
+            <h3><i aria-hidden="true">◆</i> 彩蛋效果</h3>
+            <ul>
+              <li>萌新每波最多出现 3 个彩蛋怪，老兵最多 1 个，大佬不会出现；棋盘彩蛋仍按各难度独立概率生成。</li>
+              <li>彩蛋会触发范围攻击、减速或破甲；每发弹丸消耗 1 次效果，多连发会逐发领取当前符文。</li>
+              <li>当前效果与候命数量显示在战场右上角；候命只会在获得新彩蛋时增加，并在效果接替时减少。</li>
+            </ul>
+          </section>
+
+          <section class="rule-section difficulty-rule">
+            <h3><i aria-hidden="true">♛</i> 难度与排名</h3>
+            <ul>
+              <li>萌新、老兵与大佬难度都没有终局波次；战役会持续到城墙失守。</li>
+              <li>第 1–10 波是适应与发育阶段；从第 11 波开始逐波加压，每进入新的 10 波阶段还会明显跃升。</li>
+              <li>同一难度优先比较守完波数，再比较总分、歼敌与消除成绩。</li>
+              <li>结算只计算实际交战时间，暂停不计时；坚守越久会获得更多时间分。</li>
+              <li>排行榜会保留旧版本产生的通关战报，但不再给予速通排序优先级。</li>
+            </ul>
+          </section>
+
+          <section class="rule-section save-rule">
+            <h3><i aria-hidden="true">Ⅱ</i> 暂停与存档</h3>
+            <ul>
+              <li>暂停会立即冻结战斗、消除连锁与所有效果，并保存当前状态。</li>
+              <li>每波开始和离开页面时也会自动保存；下次进入可选择继续或重开。</li>
+              <li>从存档继续会立即恢复交战，暂停时间不计入结算时长。</li>
+            </ul>
+          </section>
+        </div>
+
+        <p class="rules-footer"><kbd>Q</kbd> 发动奥术齐射　·　<kbd>Esc</kbd> 关闭规则 / 暂停</p>
+      </div>
+    </div>
+
+    <div class="modal-backdrop" id="gameOverModal" role="dialog" aria-modal="true" aria-labelledby="gameOverTitle" aria-describedby="scoreRuleNote">
+      <div class="briefing-card game-over-card">
+        <div class="settlement-heading">
+          <div>
+            <span class="briefing-kicker">城墙失守 · 战报归档</span>
+            <h2 id="gameOverTitle">本局成绩结算</h2>
+          </div>
+          <div class="settlement-rank-stamp"><span>本局排名</span><strong id="finalRank">#01</strong></div>
+        </div>
+        <div class="final-stats settlement-stats">
+          <div><span>难度</span><strong id="finalDifficulty">萌新</strong></div>
+          <div><span>守完波次</span><strong id="finalWave">0</strong></div>
+          <div><span>歼灭敌军</span><strong id="finalKills">0</strong></div>
+          <div><span>消除组数</span><strong id="finalMatches">0</strong></div>
+          <div><span>有效时长</span><strong id="finalTime">00:00</strong></div>
+          <div><span>结算总分</span><strong id="finalScore">0</strong></div>
+        </div>
+        <div class="score-ledger">
+          <span>结算分构成</span>
+          <strong id="finalScoreBreakdown">基础军功 0 + 波次 0 + 坚守时间 0</strong>
+          <small id="scoreRuleNote">只计算实际交战时间，暂停不计时；同一难度优先比较守完波数，再比较总分、歼敌与消除。</small>
+        </div>
+        <div id="failureHistorySlot">
+          <section class="history-board" id="historyBoard" aria-labelledby="historyTitle">
+            <div class="history-heading">
+              <div><h3 id="historyTitle">本机历史战绩</h3><span id="historyCount">0 条战报</span></div>
+              <div class="history-filters" role="group" aria-label="按难度查看历史排名">
+                <button class="is-active" type="button" data-history-filter="all" aria-pressed="true">总榜</button>
+                <button type="button" data-history-filter="master" aria-pressed="false">大佬</button>
+                <button type="button" data-history-filter="endless" aria-pressed="false">老兵</button>
+                <button type="button" data-history-filter="veteran" aria-pressed="false">萌新</button>
+              </div>
+            </div>
+            <div class="history-table-wrap">
+              <table class="history-table">
+                <thead><tr><th scope="col">名次</th><th scope="col">难度</th><th scope="col">波次</th><th scope="col">总分</th><th scope="col">歼敌</th><th scope="col">时长</th><th scope="col">记录时间</th></tr></thead>
+                <tbody id="historyRows"></tbody>
+              </table>
+            </div>
+          </section>
+        </div>
+        <button class="primary-button" id="restartButton" type="button"><span>重整防线</span><small>再次出征</small></button>
+      </div>
+    </div>
+
+    <div class="modal-backdrop" id="leaderboardModal" role="dialog" aria-modal="true" aria-labelledby="leaderboardTitle" aria-describedby="leaderboardDescription">
+      <div class="briefing-card leaderboard-card">
+        <button class="modal-close" id="leaderboardClose" type="button" aria-label="关闭排行榜">×</button>
+        <span class="briefing-kicker">本机战报 · LOCAL ARCHIVE</span>
+        <h2 id="leaderboardTitle">排行榜</h2>
+        <p id="leaderboardDescription">默认显示总榜；同一难度优先比较守完波数，再比较总分、歼敌与消除。记录仅保存在当前浏览器。</p>
+        <div id="leaderboardHistorySlot"></div>
+      </div>
+    </div>
+
+    <div class="context-tooltip" id="contextTooltip" role="tooltip" aria-hidden="true">
+      <span class="context-tooltip-kicker">战场提示 / FIELD NOTE</span>
+      <strong id="contextTooltipTitle">状态说明</strong>
+      <span id="contextTooltipBody">将鼠标移到战场模块上查看规则与当前状态。</span>
+    </div>
+
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
