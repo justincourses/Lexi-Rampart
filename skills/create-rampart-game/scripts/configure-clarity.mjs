@@ -7,7 +7,7 @@ const [action = 'inspect', rootArg = process.cwd(), projectId = ''] = process.ar
 const root = path.resolve(rootArg);
 const htmlPath = path.join(root, 'index.html');
 const ID_PATTERN = /^[a-z0-9_-]{4,64}$/i;
-const CLARITY_LOADER_PATTERN = /\n?[ \t]*<script(?:[ \t]+type=["']text\/javascript["'])?>[ \t]*\r?\n?[\s\S]*?\(function\(c,l,a,r,i,t,y\)\{[\s\S]*?\}\)\(window,[ \t]*document,[ \t]*["']clarity["'],[ \t]*["']script["'],[ \t]*["']([^"']+)["']\);[ \t]*\r?\n?[ \t]*<\/script>[ \t]*\r?\n?/g;
+const CLARITY_LOADER_PATTERN = /\n?[ \t]*<script(?:[ \t]+type=["']text\/javascript["'])?>[ \t]*\r?\n?(?:(?!<\/script>)[\s\S])*?\(function\(c,l,a,r,i,t,y\)\{(?:(?!<\/script>)[\s\S])*?\}\)\(window,[ \t]*document,[ \t]*["']clarity["'],[ \t]*["']script["'],[ \t]*["']([^"']+)["']\);[ \t]*\r?\n?[ \t]*<\/script>[ \t]*\r?\n?/g;
 const INVOCATION_ID_PATTERN = /(\}\)\(window,[ \t]*document,[ \t]*["']clarity["'],[ \t]*["']script["'],[ \t]*["'])[^"']+(["']\);)/;
 
 function fail(message) {

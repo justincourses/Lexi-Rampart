@@ -42,6 +42,11 @@ function extractCssTokens(css) {
   );
 }
 
+function extractClarityProjectIds(html) {
+  return [...html.matchAll(/\}\)\(window,\s*document,\s*["']clarity["'],\s*["']script["'],\s*["']([^"']+)["']\);/g)]
+    .map((match) => match[1]);
+}
+
 const packageJson = parseJson('package.json') || {};
 const sourceFiles = [
   ...listFiles('src/game', (name) => name.endsWith('.js')),
@@ -50,6 +55,8 @@ const sourceFiles = [
 ];
 const tests = listFiles('tests', (name) => name.endsWith('.js'));
 const docs = listFiles('docs', (name) => name.endsWith('.md'));
+const indexHtml = readText('index.html');
+const clarityProjectIds = extractClarityProjectIds(indexHtml);
 const combinedContractSource = [
   readText('src/game/constants.js'),
   readText('src/game/events.js'),
@@ -106,7 +113,9 @@ const report = {
     immutableAssetCache: combinedContractSource.includes('max-age=31536000, immutable'),
   },
   operationalReview: {
-    microsoftClarityPresent: readText('index.html').includes('clarity.ms/tag/'),
+    microsoftClarityPresent: indexHtml.includes('clarity.ms/tag/'),
+    microsoftClarityLoaderCount: clarityProjectIds.length,
+    microsoftClarityProjectIds: clarityProjectIds,
     remoteGoogleFontsPresent: readText('styles.css').includes('fonts.googleapis.com'),
     cloudflarePagesConfigured: exists('wrangler.jsonc'),
   },

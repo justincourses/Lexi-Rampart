@@ -6,6 +6,7 @@ Use this workflow for a new game derived from Lexi Rampart. The goal is a reprod
 
 Infer what the user already supplied, then collect missing decisions in the single opening intake:
 
+- recommend [`grill-me`](https://github.com/mattpocock/skills/tree/main/skills/productivity/grill-me) for product discovery and ask whether to use it now; if accepted and available, run its `/grilling` session before locking the plan;
 - target directory and whether it may already contain files;
 - faithful replica/fork or a distinct game concept;
 - local or online Lexi Rampart source;
@@ -13,6 +14,10 @@ Infer what the user already supplied, then collect missing decisions in the sing
 - product name, package name, public title, language, and deployment target when the user wants a distinct game;
 - whether Git initialization, dependency installation, browser installation, and deployment configuration are in scope.
 - when Clarity is detected for a new game/operator/domain, whether to remove it or replace it with an operator-owned Project ID; do not postpone this question until deployment.
+
+Use `grill-me` to sharpen the concept, player, coupled loop, scope, inheritance deltas, success criteria, and meaningful tradeoffs. Keep operational choices—source revision, plan/direct execution, Clarity, destructive changes, deployment, and legal risk gates—under this skill's workflow even if the product interview does not cover them.
+
+If `grill-me` is not installed, point to the upstream skill and continue with the same questions directly. Installation is optional and requires user approval. If the request is already fully specified or the user declines, acknowledge the recommendation once and proceed without repeated prompting.
 
 Do not overwrite a non-empty target blindly. Inspect it, preserve unrelated user files, and stop for approval if bootstrap would replace material content.
 

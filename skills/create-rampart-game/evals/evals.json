@@ -8,9 +8,11 @@
       "files": [],
       "expectations": [
         "The response identifies this as the new-game faithful-replica track and uses local source as the governing baseline.",
+        "The opening intake recommends the upstream grill-me skill and asks whether the user wants to use it before the plan is finalized, without making installation mandatory.",
         "The response cites current repository files such as package.json, runtime.js, gameplay.md, index.html, styles.css, and relevant tests as evidence.",
         "The initialization plan establishes Node 22, preserves package-lock and the Vite/native/Motion/XState/Cloudflare baseline, and explicitly avoids adding a repository .nvmrc.",
-        "The plan excludes machine-specific files and prevents copied analytics or deployment identifiers from silently reporting to or overwriting the original operator's services.",
+        "The plan excludes machine-specific files and, because Clarity is detected, guides the user in the opening intake to choose removal or replacement with an operator-owned Project ID.",
+        "The plan does not leave the original Clarity Project ID in the new runnable copy and includes post-change inspector, source/build, and network verification.",
         "The plan includes npm test, npm run build, applicable browser smoke tests, manual responsive/accessibility checks, and no production deploy.",
         "The response presents the plan and waits for approval because the user selected plan-first mode."
       ]
@@ -22,6 +24,7 @@
       "files": [],
       "expectations": [
         "The response records the upstream branch or commit and access date instead of relying on remembered repository details.",
+        "The response recommends grill-me for sharpening the new-game concept and reuses any resulting brief instead of duplicating the interview.",
         "The plan distinguishes observed source facts from design inferences and includes a baseline-versus-requested-delta table.",
         "The proposed mechanic keeps deterministic composition rules in a pure module and side effects in an attachX runtime module.",
         "The plan maps four typed resources to distinct immediate, active, recovery, and progression roles with controlled randomness and visible reward previews.",
@@ -49,10 +52,37 @@
       "files": [],
       "expectations": [
         "The plan traces the change through spelling-logic.js, spelling.js, state.js, save.js, constants.js if versioning is needed, docs, and tests rather than placing logic in runtime.js.",
+        "The opening acknowledges grill-me as an optional planning aid for this material feature and proceeds normally if the user declines or it is unavailable.",
         "The review-bag selection rule is deterministic enough for unit tests and remains bounded so normal word coverage is not starved.",
         "The plan addresses save validation, migration or backward-compatible defaults, word-list membership, reset, failure, restore, and shuffled-bag behavior.",
         "The scope explicitly excludes accounts, cloud sync, and online dictionaries.",
         "Verification includes focused unit cases, resume/reload browser coverage, npm test, npm run build, and applicable browser smoke tests."
+      ]
+    },
+    {
+      "id": 5,
+      "prompt": "用本地 Lexi Rampart 初始化一个新游戏，直接执行。我已经有自己的 Microsoft Clarity 项目，Project ID 是 mygame_2026，请替换掉原项目 ID；不要部署。",
+      "expected_output": "A direct initialization workflow that treats the supplied Clarity choice and ID as confirmation, replaces only the recognized loader ID with the bundled helper, verifies the original ID is gone, and still flags privacy/consent/audience configuration as separate work.",
+      "files": [],
+      "expectations": [
+        "The response does not ask the user to reconfirm the already explicit replace action and Project ID.",
+        "The workflow inspects the Clarity loader before editing and uses configure-clarity.mjs replace with the user-supplied ID rather than a broad search/replace.",
+        "The workflow verifies exactly one loader contains mygame_2026, the original ID is absent from source and built HTML, and browser/network checks do not report to the original project.",
+        "The response explains that replacing the Project ID alone does not configure consent, privacy notice, masking, audience suitability, or legal compliance.",
+        "The workflow runs relevant initialization tests and build verification but does not deploy."
+      ]
+    },
+    {
+      "id": 6,
+      "prompt": "我想做一个参考 Lexi Rampart 的新游戏，但还没想清楚核心输入玩法。先帮我规划；如果 grill-me 没装也不要卡住。",
+      "expected_output": "An opening discovery workflow that recommends grill-me with its upstream location, uses it when available and accepted, otherwise falls back to an equivalent focused interview, then converts the answers into a source-backed development brief and plan.",
+      "files": [],
+      "expectations": [
+        "The response recommends grill-me and identifies it as a focused product/design interview rather than a source-analysis or implementation replacement.",
+        "If grill-me is unavailable, the response provides the upstream repository link and continues with a built-in interview instead of stopping or installing it without approval.",
+        "The interview covers target player, active input mechanic, resource-to-pressure bridge, failure/recovery, scope, inherited defaults, success criteria, and important tradeoffs.",
+        "The workflow still resolves local-versus-online source, plan-versus-direct execution, and Clarity remove-versus-replace choices in the compact initialization intake.",
+        "The final plan cites inspected Lexi Rampart source and does not treat grill-me output as factual evidence about the repository."
       ]
     }
   ]

@@ -19,10 +19,13 @@ Canonical upstream: <https://github.com/justincourses/Lexi-Rampart>
 
 Infer answers already present in the request. Ask only for missing choices, and combine them into one opening question so an unattended run does not stop midway:
 
+- Recommend the [`grill-me`](https://github.com/mattpocock/skills/tree/main/skills/productivity/grill-me) skill for initial product discovery on every new game and material second-development task. Ask whether the user wants to use it as part of this same opening intake. If the user already invoked or accepted it and the skill is available, load it and run its `/grilling` session before finalizing the development plan. If unavailable, share the upstream link and continue with this skill's built-in intake; do not install third-party skills without user approval and do not make installation a blocker.
 - Is this a new game or a change to Lexi Rampart? If the request makes this obvious, do not ask.
 - Should source truth come from the local checkout or the online upstream? Default to local source, then use upstream only when local source is absent or the user chooses it.
 - Should the agent present a plan for approval or continue directly after planning? Default to plan and approval. If the user says to execute directly, create the same internal plan and continue without a routine approval pause.
 - When the selected source or target contains Microsoft Clarity and the work creates a new game, changes operator/domain, or prepares publication, should Clarity be removed or replaced with the user's own Project ID? Recommend removal for a new, educational, or potentially under-18 audience. Treat an explicitly supplied choice and Project ID as confirmation; otherwise obtain the choice before copying or editing the integration.
+
+`grill-me` sharpens ambiguous product and design choices; it does not replace the source audit, legal/operational review, compatibility risk gates, or the user's execution-mode decision. Reuse its answers instead of asking the same questions again.
 
 If the user gives no new-game concept or feature delta, reproduce Lexi Rampart faithfully. Do not invent a different stack, art direction, or ruleset merely to make the result look novel.
 
@@ -61,7 +64,7 @@ When using online source:
 Use this structure for a user-facing plan:
 
 1. **Mode and source snapshot** — new game or second development; local or online source; source revision.
-2. **Goal and non-goals** — restate the requested outcome and what will remain unchanged.
+2. **Goal and non-goals** — restate the requested outcome and what will remain unchanged, incorporating the `grill-me` brief when used.
 3. **Source evidence** — list the relevant files, symbols, mechanics, visual tokens, and tests examined.
 4. **Keep/change decisions** — compare the Lexi Rampart baseline with the requested delta, including reasons.
 5. **Gameplay and balance** — describe the player loop, resource producers/consumers, difficulty, failure/recovery, and measurable tuning assumptions.
