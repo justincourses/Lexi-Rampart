@@ -97,3 +97,9 @@ npm run deploy
 - [Kenney Impact Sounds](https://kenney.nl/assets/impact-sounds)
 
 系统朗读使用浏览器 `SpeechSynthesisUtterance`，实际语音和口音取决于用户设备。词库为项目内静态整理列表；若后续引入外部数据集，应在发布前复核数据与上游许可。
+
+## 法律与免责声明
+
+本仓库目前没有顶层开源许可证；公开可见不等于自动授权复制、修改、分发或制作衍生作品。Kenney 音效的 CC0 仅覆盖对应资源，不自动覆盖代码、词库、品牌、字体、音乐或其他内容。
+
+项目按现状提供，不构成正式 CEFR 认证、学习效果承诺、法律意见或合规保证。部署者还应独立审查第三方分析、字体、托管服务、未成年人受众和隐私义务。完整提示见 [`DISCLAIMER.md`](./DISCLAIMER.md)。

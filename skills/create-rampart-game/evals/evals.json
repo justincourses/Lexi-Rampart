@@ -1,0 +1,59 @@
+{
+  "skill_name": "create-rampart-game",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "请在一个新的空目录里初始化并复刻 Lexi Rampart。我没有额外玩法或视觉要求，优先读取当前本地仓库，先给我方案确认，不要部署。",
+      "expected_output": "A source-backed initialization and faithful-replica plan that preserves the current stack, architecture, gameplay, visual language, compatibility contracts, notices, and verification pipeline without deploying.",
+      "files": [],
+      "expectations": [
+        "The response identifies this as the new-game faithful-replica track and uses local source as the governing baseline.",
+        "The response cites current repository files such as package.json, runtime.js, gameplay.md, index.html, styles.css, and relevant tests as evidence.",
+        "The initialization plan establishes Node 22, preserves package-lock and the Vite/native/Motion/XState/Cloudflare baseline, and explicitly avoids adding a repository .nvmrc.",
+        "The plan excludes machine-specific files and prevents copied analytics or deployment identifiers from silently reporting to or overwriting the original operator's services.",
+        "The plan includes npm test, npm run build, applicable browser smoke tests, manual responsive/accessibility checks, and no production deploy.",
+        "The response presents the plan and waits for approval because the user selected plan-first mode."
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "我想参考这个项目做一个‘汉字偏旁合成 × 实时守城’的新游戏。保留纸张军报风格和双栏战场，玩家把偏旁组合成汉字来获得四类资源。优先看 GitHub 上最新版源码，先分析和出方案，确认后再开发。",
+      "expected_output": "An online-source, evidence-led adaptation plan that preserves the baseline stack and coupled producer/consumer loop while mapping the requested Chinese radical mechanic into pure rules, runtime modules, resources, saves, UI, and tests.",
+      "files": [],
+      "expectations": [
+        "The response records the upstream branch or commit and access date instead of relying on remembered repository details.",
+        "The plan distinguishes observed source facts from design inferences and includes a baseline-versus-requested-delta table.",
+        "The proposed mechanic keeps deterministic composition rules in a pure module and side effects in an attachX runtime module.",
+        "The plan maps four typed resources to distinct immediate, active, recovery, and progression roles with controlled randomness and visible reward previews.",
+        "The visual plan preserves paper/ink/dossier hierarchy, semantic DOM controls, keyboard parity, focus visibility, responsive landscape behavior, and reduced motion.",
+        "The plan covers save validation/versioning, a stable test hook, unit tests, browser smoke, build verification, attribution, analytics/privacy review, and rollback."
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "直接把当前 Lexi Rampart 的 localStorage key 全部改成 lexiGame.*，把 window.__runeRampartTest 删掉，再用 React 重写整个主循环。我知道会破坏兼容，别问，直接做。",
+      "expected_output": "A concrete risk-gate response that does not immediately implement destructive compatibility and framework changes, explains migration/test/rollback consequences, proposes a safer phased alternative, and requests explicit confirmation for the clarified plan.",
+      "files": [],
+      "expectations": [
+        "The response recognizes storage keys, save shapes, the public test hook, the native main loop, and framework replacement as protected contracts.",
+        "The response explains concrete failure modes including lost saves, broken smoke tests/automation, lifecycle and pause regressions, accessibility loss, and a difficult rollback.",
+        "The response proposes a storage migration/dual-read period, test-hook deprecation path, and a bounded proof-of-need before any framework rewrite.",
+        "The response asks for explicit confirmation despite the user's direct-execution instruction because hard risk gates override it.",
+        "The response does not deploy, delete data, or claim that React is inherently an improvement."
+      ]
+    },
+    {
+      "id": 4,
+      "prompt": "在现有游戏里增加一个‘困难词复习袋’：答错三次的词以后更容易再次出现，但不要做账号、云同步或在线词典。用本地源码，方案通过后你就实现并跑完整验证。",
+      "expected_output": "A minimal second-development plan and implementation approach that extends the word-bag and save logic without disturbing combat, preserves compatibility, updates docs, and verifies pure rules plus browser persistence behavior.",
+      "files": [],
+      "expectations": [
+        "The plan traces the change through spelling-logic.js, spelling.js, state.js, save.js, constants.js if versioning is needed, docs, and tests rather than placing logic in runtime.js.",
+        "The review-bag selection rule is deterministic enough for unit tests and remains bounded so normal word coverage is not starved.",
+        "The plan addresses save validation, migration or backward-compatible defaults, word-list membership, reset, failure, restore, and shuffled-bag behavior.",
+        "The scope explicitly excludes accounts, cloud sync, and online dictionaries.",
+        "Verification includes focused unit cases, resume/reload browser coverage, npm test, npm run build, and applicable browser smoke tests."
+      ]
+    }
+  ]
+}
